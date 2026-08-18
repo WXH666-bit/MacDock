@@ -1,0 +1,14 @@
+# 构建产物
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Claude Code 项目级配置（按用户要求不上传）
+.claude/
+
+# 日志
+*.log

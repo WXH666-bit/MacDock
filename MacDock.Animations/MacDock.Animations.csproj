@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <LangVersion>12</LangVersion>
+    <RootNamespace>MacDock.Animations</RootNamespace>
+    <AssemblyName>MacDock.Animations</AssemblyName>
+  </PropertyGroup>
+
+</Project>

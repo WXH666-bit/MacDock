@@ -1,0 +1,6 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- 浅色主题：Dock 毛玻璃背景（半透明） -->
+    <SolidColorBrush x:Key="DockBackgroundBrush" Color="#B3F2F2F7"/>
+    <SolidColorBrush x:Key="DockBorderBrush" Color="#40FFFFFF"/>
+</ResourceDictionary>
