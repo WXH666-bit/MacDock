@@ -10,5 +10,12 @@
 # Claude Code 项目级配置（按用户要求不上传）
 .claude/
 
+# 扣子编程（Coze）平台配置与规范文档（按用户要求不上传）
+.coze
+.preview
+.codegraph/
+AGENTS.md
+scripts/
+
 # 日志
 *.log

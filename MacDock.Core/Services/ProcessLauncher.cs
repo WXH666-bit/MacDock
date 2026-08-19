@@ -1,10 +1,13 @@
 using System.Diagnostics;
+using MacDock.Core.Interop;
 using MacDock.Core.Models;
 
 namespace MacDock.Core.Services;
 
 /// <summary>
-/// 进程启动服务：Process.Start + 同一程序不重复启动。
+/// 进程启动服务：支持本地 exe、URI 协议（http/https/calculator: 等）与商店应用；
+/// 同一程序不重复启动——已运行时激活其主窗口到前台。
+/// 启动失败抛出异常，由调用方（UI 层）负责日志与用户提示。
 /// </summary>
 public static class ProcessLauncher
 {
@@ -16,9 +19,8 @@ public static class ProcessLauncher
 
         var path = item.Path;
 
-        // URL：直接用默认浏览器打开，不做重复检测
-        if (Uri.TryCreate(path, UriKind.Absolute, out var uri) &&
-            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        // URI 协议（http/https、calculator: 等）：交给系统协议处理器，不做重复检测
+        if (Uri.TryCreate(path, UriKind.Absolute, out var uri) && !uri.IsFile)
         {
             Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
             return;
@@ -33,9 +35,22 @@ public static class ProcessLauncher
             return;
         }
 
-        // 同一程序不重复启动
-        if (Process.GetProcessesByName(exeName).Length > 0)
+        // 已运行：激活其主窗口到前台，而不是重复启动
+        if (TryActivateRunningInstance(exeName))
             return;
+
+        // 文件不存在：可能是商店应用（如 Win11 的计算器，System32\calc.exe 已失效）
+        if (!File.Exists(path))
+        {
+            var aumid = StoreAppResolver.ResolveAumid(exeName);
+            if (aumid is not null)
+            {
+                StoreAppResolver.LaunchByAumid(aumid);
+                return;
+            }
+
+            throw new FileNotFoundException($"启动目标不存在，且未匹配到商店应用：{path}");
+        }
 
         Process.Start(new ProcessStartInfo
         {
@@ -44,5 +59,43 @@ public static class ProcessLauncher
             UseShellExecute = true,
             WorkingDirectory = Path.GetDirectoryName(path) ?? string.Empty,
         });
+    }
+
+    /// <summary>找到指定进程名的可见主窗口并还原、置前台。</summary>
+    private static bool TryActivateRunningInstance(string exeName)
+    {
+        Process[] processes;
+        try
+        {
+            processes = Process.GetProcessesByName(exeName);
+        }
+        catch
+        {
+            return false;
+        }
+
+        foreach (var process in processes)
+        {
+            try
+            {
+                var handle = process.MainWindowHandle;
+                if (handle == IntPtr.Zero)
+                    continue;
+
+                NativeMethods.ShowWindow(handle, NativeMethods.SW_RESTORE);
+                NativeMethods.SetForegroundWindow(handle);
+                return true;
+            }
+            catch
+            {
+                // 进程可能在枚举间隙退出，继续找下一个实例
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+
+        return false;
     }
 }

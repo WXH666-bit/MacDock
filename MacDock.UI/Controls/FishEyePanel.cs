@@ -52,6 +52,12 @@ public sealed class FishEyePanel : Panel
 
     private double Slot => IconSize + Spacing;
 
+    /// <summary>首尾各追加的内边距，防止放大后的图标溢出被窗口裁剪。</summary>
+    private double EdgePadding => EffectRadius * 0.4;
+
+    /// <summary>放大图标的最大上抬高度（弧线顶点）。</summary>
+    private double MaxLift => (MaxScale - 1.0) * IconSize * 0.35;
+
     private void StartAnimation()
     {
         if (_animating)
@@ -78,8 +84,9 @@ public sealed class FishEyePanel : Panel
             child.Measure(childSize);
 
         int count = Children.Count;
-        double width = count == 0 ? 0 : count * Slot + Spacing;
-        return new Size(width, maxSize);
+        double width = count == 0 ? 0 : count * Slot + Spacing + 2 * EdgePadding;
+        // 高度需容纳最大放大 + 弧线上抬，否则放大图标顶部被裁剪
+        return new Size(width, maxSize + MaxLift);
     }
 
     protected override Size ArrangeOverride(Size finalSize)
@@ -93,9 +100,10 @@ public sealed class FishEyePanel : Panel
             double scale = _currentScales.TryGetValue(child, out var s) ? s : 1.0;
             double w = IconSize * scale;
             double h = IconSize * scale;
-            double centerX = Spacing + IconSize / 2.0 + i * slot;
+            double centerX = Spacing + EdgePadding + IconSize / 2.0 + i * slot;
             double x = centerX - w / 2.0;
-            double y = finalSize.Height - h;
+            // 鱼眼弧线：放大越多的图标上抬越高
+            double y = finalSize.Height - h - (scale - 1.0) * IconSize * 0.35;
             child.Arrange(new Rect(x, y, w, h));
         }
 
@@ -127,7 +135,7 @@ public sealed class FishEyePanel : Panel
             double target = 1.0;
             if (!double.IsNaN(mouse.X))
             {
-                double centerX = Spacing + IconSize / 2.0 + i * slot;
+                double centerX = Spacing + EdgePadding + IconSize / 2.0 + i * slot;
                 double dx = mouse.X - centerX;
                 double factor = Math.Abs(dx) / EffectRadius;
                 double falloff = factor >= 1.0 ? 0.0 : Math.Cos(factor * Math.PI / 2.0);

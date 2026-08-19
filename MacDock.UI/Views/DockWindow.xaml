@@ -5,13 +5,25 @@
         xmlns:controls="clr-namespace:MacDock.UI.Controls"
         WindowStyle="None"
         Background="Transparent"
-        AllowsTransparency="True"
+        AllowsTransparency="False"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         Topmost="True"
         ShowActivated="False"
         SizeToContent="WidthAndHeight">
-    <Grid Margin="18">
+    <!--
+        AllowsTransparency=False（非分层窗口）才能由 DWM 合成 SYSTEMBACKDROP 亚克力。
+        WindowChrome 去掉系统边框并把整个客户区交给 DWM，Win11 上呈现亚克力 + 系统圆角。
+        Win10 降级路径在构造函数中切回 AllowsTransparency=True + 半透明渐变。
+    -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome GlassFrameThickness="-1"
+                      CaptionHeight="0"
+                      ResizeBorderThickness="0"
+                      UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+
+    <Grid x:Name="RootGrid" Margin="8">
         <tb:TaskbarIcon x:Name="TrayIcon" ToolTipText="MacDock">
             <tb:TaskbarIcon.ContextMenu>
                 <ContextMenu>
@@ -21,8 +33,9 @@
             </tb:TaskbarIcon.ContextMenu>
         </tb:TaskbarIcon>
 
+        <!-- 圆角与 DWM 圆角一致（约 12px）；背景仅留极淡白色渐变，模糊交给 DWM -->
         <Border x:Name="DockBorder"
-                CornerRadius="20"
+                CornerRadius="12"
                 Padding="10"
                 BorderThickness="1"
                 BorderBrush="#40FFFFFF"
@@ -31,13 +44,10 @@
                 Drop="OnDrop">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#8CF9F9FA" Offset="0"/>
-                    <GradientStop Color="#59EDEDF0" Offset="1"/>
+                    <GradientStop Color="#12F9F9FA" Offset="0"/>
+                    <GradientStop Color="#0DEDEDF0" Offset="1"/>
                 </LinearGradientBrush>
             </Border.Background>
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="22" ShadowDepth="2" Opacity="0.25" Color="Black"/>
-            </Border.Effect>
             <ItemsControl ItemsSource="{Binding Items}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>

@@ -127,6 +127,9 @@ public sealed class IconService
         return source;
     }
 
+    /// <summary>占位图标（异步加载完成前显示；已冻结，线程安全）。</summary>
+    public static BitmapSource GetPlaceholderIcon() => CreatePlaceholderIcon();
+
     /// <summary>返回一个简单的占位图标，避免空引用。</summary>
     private static BitmapSource CreatePlaceholderIcon()
     {
