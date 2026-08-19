@@ -82,8 +82,7 @@ public static class ProcessLauncher
                 if (handle == IntPtr.Zero)
                     continue;
 
-                NativeMethods.ShowWindow(handle, NativeMethods.SW_RESTORE);
-                NativeMethods.SetForegroundWindow(handle);
+                ForceToForeground(handle);
                 return true;
             }
             catch
@@ -97,5 +96,42 @@ public static class ProcessLauncher
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// 强制把窗口置前台。Dock 带 WS_EX_NOACTIVATE，直接 SetForegroundWindow 会被
+    /// 前台锁定策略静默拒绝；先 AttachThreadInput 挂靠前台线程的输入队列再激活。
+    /// </summary>
+    private static void ForceToForeground(IntPtr hwnd)
+    {
+        var foreground = NativeMethods.GetForegroundWindow();
+        if (foreground == hwnd)
+        {
+            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+            return;
+        }
+
+        uint currentThread = NativeMethods.GetCurrentThreadId();
+        uint foregroundThread = foreground != IntPtr.Zero
+            ? NativeMethods.GetWindowThreadProcessId(foreground, out _)
+            : 0;
+        uint targetThread = NativeMethods.GetWindowThreadProcessId(hwnd, out _);
+
+        bool attachForeground = foregroundThread != 0 && foregroundThread != currentThread;
+        bool attachTarget = targetThread != 0 && targetThread != currentThread && targetThread != foregroundThread;
+
+        if (attachForeground)
+            NativeMethods.AttachThreadInput(currentThread, foregroundThread, true);
+        if (attachTarget)
+            NativeMethods.AttachThreadInput(currentThread, targetThread, true);
+
+        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+        NativeMethods.BringWindowToTop(hwnd);
+        NativeMethods.SetForegroundWindow(hwnd);
+
+        if (attachTarget)
+            NativeMethods.AttachThreadInput(currentThread, targetThread, false);
+        if (attachForeground)
+            NativeMethods.AttachThreadInput(currentThread, foregroundThread, false);
     }
 }
