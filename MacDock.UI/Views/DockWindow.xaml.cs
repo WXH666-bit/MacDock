@@ -94,8 +94,8 @@ public partial class DockWindow : Window
         try
         {
             TrayIcon.ShowNotification("MacDock", message, NotificationIcon.Error,
-                largeIconHandle: null, sound: true, respectContent: true,
-                realtime: false, blurred: false, expirationTime: null);
+                customIconHandle: null, largeIcon: false, sound: true,
+                respectQuietTime: true, realtime: false, timeout: null);
         }
         catch (Exception ex)
         {

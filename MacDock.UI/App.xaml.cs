@@ -56,8 +56,8 @@ public partial class App : Application
                 Icon = System.Drawing.SystemIcons.Application,
             };
             tray.ShowNotification("MacDock", "MacDock 已在运行中", NotificationIcon.Info,
-                largeIconHandle: null, sound: true, respectContent: true,
-                realtime: false, blurred: false, expirationTime: null);
+                customIconHandle: null, largeIcon: false, sound: true,
+                respectQuietTime: true, realtime: false, timeout: null);
 
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
             timer.Tick += (_, _) =>

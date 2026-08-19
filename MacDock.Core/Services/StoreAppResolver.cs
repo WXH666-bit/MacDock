@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Security.Principal;
+using Windows.ApplicationModel;
 using Windows.Management.Deployment;
 
 namespace MacDock.Core.Services;
