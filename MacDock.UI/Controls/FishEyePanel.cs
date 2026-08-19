@@ -99,8 +99,8 @@ public sealed class FishEyePanel : Panel
             double h = IconSize * scale;
             double centerX = Spacing + EdgePadding + IconSize / 2.0 + i * slot;
             double x = centerX - w / 2.0;
-            // 鱼眼弧线：放大越多的图标上抬越高
-            double y = finalSize.Height - h - (scale - 1.0) * IconSize * 0.35;
+            // 贴底缩放：放大向上溢出，由 DockBorder 内边距容纳，不撑大背景
+            double y = finalSize.Height - h;
             child.Arrange(new Rect(x, y, w, h));
         }
 

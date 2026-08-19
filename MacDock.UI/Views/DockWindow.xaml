@@ -24,12 +24,6 @@
     </WindowChrome.WindowChrome>
 
     <Grid x:Name="RootGrid">
-        <Grid.RowDefinitions>
-            <!-- 放大溢出预留区：只给放大图标提供渲染空间，不拦截鼠标 -->
-            <RowDefinition Height="48"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
         <tb:TaskbarIcon x:Name="TrayIcon" ToolTipText="MacDock">
             <tb:TaskbarIcon.ContextMenu>
                 <ContextMenu>
@@ -39,13 +33,10 @@
             </tb:TaskbarIcon.ContextMenu>
         </tb:TaskbarIcon>
 
-        <Border Background="{x:Null}" IsHitTestVisible="False"/>
-
         <!-- 圆角与 DWM 圆角一致（约 12px）；背景仅留极淡白色渐变，模糊交给 DWM -->
         <Border x:Name="DockBorder"
-                Grid.Row="1"
                 CornerRadius="12"
-                Padding="6"
+                Padding="8,6,8,6"
                 BorderThickness="1"
                 BorderBrush="#40FFFFFF"
                 AllowDrop="True"
@@ -61,7 +52,7 @@
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <controls:FishEyePanel Background="Transparent"
-                                                IconSize="48" MaxScale="1.6"
+                                                IconSize="48" MaxScale="1.25"
                                                 EffectRadius="120" Spacing="12"
                                                 UseLayoutRounding="True"/>
                     </ItemsPanelTemplate>
