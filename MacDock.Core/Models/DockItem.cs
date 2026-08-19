@@ -20,6 +20,12 @@ public sealed class DockItem
     /// </summary>
     public string? IconOverride { get; set; }
 
+    /// <summary>
+    /// 商店应用的可执行名（如 notepad）。Path 为空时经 StoreAppResolver
+    /// 解析 AUMID 启动，用于 Win11 商店化系统组件（无本地 exe 的场景）。
+    /// </summary>
+    public string? StoreAppName { get; set; }
+
     /// <summary>启动参数。</summary>
     public string? Arguments { get; set; }
 

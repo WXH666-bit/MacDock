@@ -46,7 +46,8 @@ public partial class DockWindow : Window
         if (SystemBackdropService.IsAcrylicSupported)
         {
             SystemBackdropService.ApplyRoundedCorners(hwnd);
-            SystemBackdropService.ApplyAcrylic(hwnd);
+            // Accent 亚克力：深灰 60% 不透明起步，观感可微调 A 通道（越大越实、越小越透）
+            SystemBackdropService.ApplyAccentAcrylic(hwnd, 0x99202020);
         }
     }
 

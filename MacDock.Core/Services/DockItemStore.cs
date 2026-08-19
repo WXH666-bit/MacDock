@@ -58,9 +58,11 @@ public sealed class DockItemStore
         File.WriteAllText(_filePath, json);
     }
 
-    // 内置图标（MacDock.UI 资源）：仅商店应用兜底用——Win11 计算器是商店应用，
-    // System32\calc.exe 不存在、真实图标提取不到；其余项走 IconService 真实提取。
+    // 内置图标（MacDock.UI 资源）兜底用：Win11 计算器/商店版记事本无本地 exe 可提取
+    // 真实图标；Edge 缺失时的 URL 回退项无本地文件，也用内置图。其余项走 IconService 真实提取。
     private const string CalculatorIcon = "pack://application:,,,/Assets/Icons/calculator.png";
+    private const string NotesIcon = "pack://application:,,,/Assets/Icons/notes.png";
+    private const string SafariIcon = "pack://application:,,,/Assets/Icons/safari.png";
 
     private static List<DockItem> CreateDefaultItems()
     {
@@ -76,12 +78,6 @@ public sealed class DockItemStore
             },
             new()
             {
-                Name = "记事本",
-                Path = Path.Combine(sys, "notepad.exe"),
-                IsBuiltIn = true,
-            },
-            new()
-            {
                 Name = "计算器",
                 Path = "calculator:",
                 IconOverride = CalculatorIcon,
@@ -89,20 +85,50 @@ public sealed class DockItemStore
             },
         };
 
-        // 浏览器：优先 Edge，缺失则回退为 URL（由默认浏览器打开）
+        // 记事本：System32\notepad.exe 存在则用真实图标；缺失说明是 Win11 商店版，
+        // 走 StoreAppResolver（"notepad"→Microsoft.WindowsNotepad）+ 内置图标兜底
+        var notepadPath = Path.Combine(sys, "notepad.exe");
+        if (File.Exists(notepadPath))
+        {
+            list.Add(new DockItem { Name = "记事本", Path = notepadPath, IsBuiltIn = true });
+        }
+        else
+        {
+            list.Add(new DockItem
+            {
+                Name = "记事本",
+                Path = string.Empty,
+                StoreAppName = "notepad",
+                IconOverride = NotesIcon,
+                IsBuiltIn = true,
+            });
+        }
+
+        // 浏览器：优先 Edge（ProgramFilesX86 → ProgramFiles → 按用户安装），缺失则回退为 URL
         var edgeX86 = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
             @"Microsoft\Edge\Application\msedge.exe");
         var edgeX64 = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             @"Microsoft\Edge\Application\msedge.exe");
+        var edgeUser = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            @"Microsoft\Edge\Application\msedge.exe");
 
         if (File.Exists(edgeX86))
             list.Add(new DockItem { Name = "浏览器", Path = edgeX86, IsBuiltIn = true });
         else if (File.Exists(edgeX64))
             list.Add(new DockItem { Name = "浏览器", Path = edgeX64, IsBuiltIn = true });
+        else if (File.Exists(edgeUser))
+            list.Add(new DockItem { Name = "浏览器", Path = edgeUser, IsBuiltIn = true });
         else
-            list.Add(new DockItem { Name = "浏览器", Path = "https://www.bing.com", IsBuiltIn = true });
+            list.Add(new DockItem
+            {
+                Name = "浏览器",
+                Path = "https://www.bing.com",
+                IconOverride = SafariIcon, // URL 无本地文件可提取图标，用内置图
+                IsBuiltIn = true,
+            });
 
         return list;
     }

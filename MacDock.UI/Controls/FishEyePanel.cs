@@ -55,9 +55,6 @@ public sealed class FishEyePanel : Panel
     /// <summary>首尾各追加的内边距，防止放大后的图标溢出被窗口裁剪。</summary>
     private double EdgePadding => EffectRadius * 0.4;
 
-    /// <summary>放大图标的最大上抬高度（弧线顶点）。</summary>
-    private double MaxLift => (MaxScale - 1.0) * IconSize * 0.35;
-
     private void StartAnimation()
     {
         if (_animating)
@@ -85,8 +82,8 @@ public sealed class FishEyePanel : Panel
 
         int count = Children.Count;
         double width = count == 0 ? 0 : count * Slot + Spacing + 2 * EdgePadding;
-        // 高度需容纳最大放大 + 弧线上抬，否则放大图标顶部被裁剪
-        return new Size(width, maxSize + MaxLift);
+        // 高度只报静止图标行：放大时图标向上溢出渲染（外层已预留空间），不撑大背景
+        return new Size(width, IconSize);
     }
 
     protected override Size ArrangeOverride(Size finalSize)

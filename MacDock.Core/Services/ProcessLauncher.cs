@@ -14,8 +14,20 @@ public static class ProcessLauncher
     /// <summary>启动 Dock 项目对应的应用。</summary>
     public static void Launch(DockItem item)
     {
+        // 商店应用项（无本地路径）：已运行则激活，否则解析 AUMID 拉起
         if (string.IsNullOrWhiteSpace(item.Path))
+        {
+            if (string.IsNullOrWhiteSpace(item.StoreAppName))
+                return;
+
+            if (TryActivateRunningInstance(item.StoreAppName))
+                return;
+
+            var storeAumid = StoreAppResolver.ResolveAumid(item.StoreAppName)
+                ?? throw new FileNotFoundException($"未匹配到商店应用：{item.StoreAppName}");
+            StoreAppResolver.LaunchByAumid(storeAumid);
             return;
+        }
 
         var path = item.Path;
 

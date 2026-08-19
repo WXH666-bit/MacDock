@@ -27,6 +27,15 @@ internal static class NativeMethods
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
+    // ---- 窗口合成属性（Accent 亚克力，Win10 1803+ / Win11 全系） ----
+    /// <summary>WCA_ACCENT_POLICY。</summary>
+    public const int WCA_ACCENT_POLICY = 19;
+    /// <summary>ACCENT_ENABLE_ACRYLICBLURBEHIND：亚克力模糊 + 可控透明度底色。</summary>
+    public const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
+
+    [DllImport("user32.dll")]
+    public static extern int SetWindowCompositionAttribute(IntPtr hWnd, ref WindowCompositionAttributeData data);
+
     // ---- 窗口激活 ----
     public const int SW_RESTORE = 9;
 
@@ -107,6 +116,25 @@ internal static class NativeMethods
 
     [DllImport("shell32.dll")]
     public static extern int SHGetImageList(int iImageList, ref Guid riid, out IntPtr ppv);
+}
+
+/// <summary>ACCENT_POLICY：窗口合成策略。GradientColor 格式 (A&lt;&lt;24)|(B&lt;&lt;16)|(G&lt;&lt;8)|R。</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct AccentPolicy
+{
+    public int AccentState;
+    public int AccentFlags;
+    public int GradientColor;
+    public int AnimationId;
+}
+
+/// <summary>WINDOWCOMPOSITIONATTRIBUTEDATA。</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct WindowCompositionAttributeData
+{
+    public int Attribute;
+    public IntPtr Data;
+    public int SizeOfData;
 }
 
 [StructLayout(LayoutKind.Sequential)]

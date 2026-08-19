@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using MacDock.Core.Interop;
 
 namespace MacDock.Core.Services;
@@ -19,6 +20,39 @@ public static class SystemBackdropService
 
         int backdrop = NativeMethods.DWMSBT_TRANSIENTWINDOW; // 3 = 亚克力
         NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref backdrop, sizeof(int));
+    }
+
+    /// <summary>
+    /// 应用 Accent 亚克力（Win10 1803+/Win11 全系）：磨砂模糊 + 透明度可控的底色。
+    /// abgrColor 格式 (A&lt;&lt;24)|(B&lt;&lt;16)|(G&lt;&lt;8)|R，A 通道越大越实、越小越透。
+    /// </summary>
+    public static void ApplyAccentAcrylic(IntPtr hwnd, uint abgrColor)
+    {
+        var accent = new AccentPolicy
+        {
+            AccentState = NativeMethods.ACCENT_ENABLE_ACRYLICBLURBEHIND,
+            AccentFlags = 0,
+            GradientColor = (int)abgrColor,
+            AnimationId = 0,
+        };
+
+        int size = Marshal.SizeOf<AccentPolicy>();
+        var ptr = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(accent, ptr, false);
+            var data = new WindowCompositionAttributeData
+            {
+                Attribute = NativeMethods.WCA_ACCENT_POLICY,
+                Data = ptr,
+                SizeOfData = size,
+            };
+            NativeMethods.SetWindowCompositionAttribute(hwnd, ref data);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ptr);
+        }
     }
 
     /// <summary>应用 DWM 圆角（仅 Win11 生效）。</summary>
