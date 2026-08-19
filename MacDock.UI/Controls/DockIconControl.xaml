@@ -15,22 +15,10 @@
             </ContextMenu>
         </Grid.ContextMenu>
 
-        <!-- squircle 容器：统一图标底板，CornerRadius ≈ IconSize(48) * 0.23 -->
+        <!-- 图标容器：无底板（macOS 图标自带造型，避免双层底观感） -->
         <Border x:Name="SquircleBorder"
                 CornerRadius="11"
-                BorderThickness="1">
-            <Border.BorderBrush>
-                <SolidColorBrush Color="White" Opacity="0.3"/>
-            </Border.BorderBrush>
-            <Border.Effect>
-                <DropShadowEffect BlurRadius="6" Opacity="0.15" ShadowDepth="1" Color="Black"/>
-            </Border.Effect>
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#F5F5F7" Offset="0"/>
-                    <GradientStop Color="#E8E8ED" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
+                Background="Transparent">
 
             <!-- 内层 Image 占容器约 70% -->
             <Grid>
@@ -47,6 +35,7 @@
                 <Image Grid.Row="1" Grid.Column="1"
                        Source="{Binding Icon}"
                        Stretch="Uniform"
+                       SnapsToDevicePixels="True"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
             </Grid>
         </Border>

@@ -53,7 +53,8 @@
                     <ItemsPanelTemplate>
                         <controls:FishEyePanel Background="Transparent"
                                                 IconSize="48" MaxScale="1.6"
-                                                EffectRadius="120" Spacing="12"/>
+                                                EffectRadius="120" Spacing="12"
+                                                UseLayoutRounding="True"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>

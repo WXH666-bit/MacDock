@@ -58,11 +58,9 @@ public sealed class DockItemStore
         File.WriteAllText(_filePath, json);
     }
 
-    // 内置 macOS 风格图标（MacDock.UI 资源）
-    private const string FinderIcon = "pack://application:,,,/Assets/Icons/finder.png";
-    private const string NotesIcon = "pack://application:,,,/Assets/Icons/notes.png";
+    // 内置图标（MacDock.UI 资源）：仅商店应用兜底用——Win11 计算器是商店应用，
+    // System32\calc.exe 不存在、真实图标提取不到；其余项走 IconService 真实提取。
     private const string CalculatorIcon = "pack://application:,,,/Assets/Icons/calculator.png";
-    private const string SafariIcon = "pack://application:,,,/Assets/Icons/safari.png";
 
     private static List<DockItem> CreateDefaultItems()
     {
@@ -74,17 +72,14 @@ public sealed class DockItemStore
             {
                 Name = "资源管理器",
                 Path = Path.Combine(windows, "explorer.exe"),
-                IconOverride = FinderIcon,
                 IsBuiltIn = true,
             },
             new()
             {
                 Name = "记事本",
                 Path = Path.Combine(sys, "notepad.exe"),
-                IconOverride = NotesIcon,
                 IsBuiltIn = true,
             },
-            // Win11 的计算器是商店应用，System32\calc.exe 不存在；URI 方案可稳定拉起
             new()
             {
                 Name = "计算器",
@@ -103,11 +98,11 @@ public sealed class DockItemStore
             @"Microsoft\Edge\Application\msedge.exe");
 
         if (File.Exists(edgeX86))
-            list.Add(new DockItem { Name = "浏览器", Path = edgeX86, IconOverride = SafariIcon, IsBuiltIn = true });
+            list.Add(new DockItem { Name = "浏览器", Path = edgeX86, IsBuiltIn = true });
         else if (File.Exists(edgeX64))
-            list.Add(new DockItem { Name = "浏览器", Path = edgeX64, IconOverride = SafariIcon, IsBuiltIn = true });
+            list.Add(new DockItem { Name = "浏览器", Path = edgeX64, IsBuiltIn = true });
         else
-            list.Add(new DockItem { Name = "浏览器", Path = "https://www.bing.com", IconOverride = SafariIcon, IsBuiltIn = true });
+            list.Add(new DockItem { Name = "浏览器", Path = "https://www.bing.com", IsBuiltIn = true });
 
         return list;
     }
