@@ -12,6 +12,9 @@ public static class SystemBackdropService
     /// <summary>系统是否支持 DWM 亚克力系统背景（Win11 22H2+，build 22621+）。</summary>
     public static bool IsAcrylicSupported => Environment.OSVersion.Version.Build >= 22621;
 
+    /// <summary>系统是否支持 Accent 亚克力（Win10 1803+，build 17134+）。</summary>
+    public static bool IsAccentAcrylicSupported => Environment.OSVersion.Version.Build >= 17134;
+
     /// <summary>应用亚克力背景（仅 Win11 22H2+ 生效）。</summary>
     public static void ApplyAcrylic(IntPtr hwnd)
     {

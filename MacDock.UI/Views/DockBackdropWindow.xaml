@@ -1,0 +1,36 @@
+<Window x:Class="MacDock.UI.Views.DockBackdropWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        Background="Transparent"
+        AllowsTransparency="False"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ShowActivated="False"
+        IsHitTestVisible="False">
+    <!--
+        Dock 背景玻璃条：独立窗口承载 DWM 亚克力与系统圆角，只包静止图标行；
+        图标层（DockWindow）是分层透明窗口叠在其上，放大的图标自由溢出到玻璃条上方。
+        本窗口带 WS_EX_TRANSPARENT 鼠标穿透，所有交互都落在图标层。
+    -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome GlassFrameThickness="-1"
+                      CaptionHeight="0"
+                      ResizeBorderThickness="0"
+                      UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+
+    <!-- 极淡白色渐变提亮上缘，模糊由 DWM 合成；圆角与 DWM 圆角近似一致 -->
+    <Border x:Name="GlassBorder"
+            CornerRadius="13"
+            BorderThickness="1"
+            BorderBrush="#3DFFFFFF">
+        <Border.Background>
+            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                <GradientStop Color="#17FFFFFF" Offset="0"/>
+                <GradientStop Color="#0AFFFFFF" Offset="1"/>
+            </LinearGradientBrush>
+        </Border.Background>
+    </Border>
+</Window>

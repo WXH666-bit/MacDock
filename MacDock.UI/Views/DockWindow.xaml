@@ -5,24 +5,17 @@
         xmlns:controls="clr-namespace:MacDock.UI.Controls"
         WindowStyle="None"
         Background="Transparent"
-        AllowsTransparency="False"
+        AllowsTransparency="True"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         Topmost="True"
         ShowActivated="False"
         SizeToContent="WidthAndHeight">
     <!--
-        AllowsTransparency=False（非分层窗口）才能由 DWM 合成 SYSTEMBACKDROP 亚克力。
-        WindowChrome 去掉系统边框并把整个客户区交给 DWM，Win11 上呈现亚克力 + 系统圆角。
-        Win10 降级路径在构造函数中切回 AllowsTransparency=True + 半透明渐变。
+        图标层窗口：分层透明（AllowsTransparency=True），只承载图标、名称气泡与交互；
+        毛玻璃背景由独立的 DockBackdropWindow（DWM 亚克力、鼠标穿透）在下层承担。
+        双窗口结构使放大的图标能溢出玻璃条上方，还原 macOS Dock 的观感。
     -->
-    <WindowChrome.WindowChrome>
-        <WindowChrome GlassFrameThickness="-1"
-                      CaptionHeight="0"
-                      ResizeBorderThickness="0"
-                      UseAeroCaptionButtons="False"/>
-    </WindowChrome.WindowChrome>
-
     <Grid x:Name="RootGrid">
         <tb:TaskbarIcon x:Name="TrayIcon" ToolTipText="MacDock">
             <tb:TaskbarIcon.ContextMenu>
@@ -33,28 +26,39 @@
             </tb:TaskbarIcon.ContextMenu>
         </tb:TaskbarIcon>
 
-        <!-- 圆角与 DWM 圆角一致（约 12px）；背景仅留极淡白色渐变，模糊交给 DWM -->
-        <Border x:Name="DockBorder"
-                CornerRadius="12"
-                Padding="8,6,8,6"
-                BorderThickness="1"
-                BorderBrush="#40FFFFFF"
-                AllowDrop="True"
-                DragOver="OnDragOver"
-                Drop="OnDrop">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                    <GradientStop Color="#12F9F9FA" Offset="0"/>
-                    <GradientStop Color="#0DEDEDF0" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
-            <ItemsControl ItemsSource="{Binding Items}">
+        <StackPanel Orientation="Vertical">
+            <!-- macOS 风格名称气泡：悬停图标上方居中，淡入淡出 -->
+            <Canvas x:Name="LabelCanvas" Height="38" ClipToBounds="False">
+                <Border x:Name="NameBubble"
+                        CornerRadius="7"
+                        Padding="11,4,11,5"
+                        Background="#E0242428"
+                        BorderThickness="1"
+                        BorderBrush="#30FFFFFF"
+                        Opacity="0"
+                        IsHitTestVisible="False">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="10" ShadowDepth="1" Opacity="0.45" Color="Black"/>
+                    </Border.Effect>
+                    <TextBlock x:Name="NameText"
+                               Foreground="#F2FFFFFF"
+                               FontSize="13"
+                               FontWeight="Medium"/>
+                </Border>
+            </Canvas>
+
+            <!-- 近透明底色保证空隙可命中（拖放/悬停），视觉上不可见 -->
+            <ItemsControl ItemsSource="{Binding Items}"
+                          Background="#01000000"
+                          AllowDrop="True"
+                          DragOver="OnDragOver"
+                          Drop="OnDrop">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <controls:FishEyePanel Background="Transparent"
-                                                IconSize="48" MaxScale="1.25"
-                                                EffectRadius="120" Spacing="12"
-                                                UseLayoutRounding="True"/>
+                        <controls:FishEyePanel IconSize="56" MaxScale="1.6"
+                                               EffectRadius="130" Spacing="8"
+                                               UseLayoutRounding="True"
+                                               Loaded="OnFishEyePanelLoaded"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -63,6 +67,6 @@
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
-        </Border>
+        </StackPanel>
     </Grid>
 </Window>

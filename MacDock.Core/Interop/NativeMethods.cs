@@ -13,6 +13,20 @@ internal static class NativeMethods
     public const long WS_EX_NOACTIVATE = 0x08000000L;
     public const long WS_EX_TOOLWINDOW = 0x00000080L;
     public const long WS_EX_TOPMOST = 0x00000008L;
+    /// <summary>WS_EX_TRANSPARENT：鼠标点击穿透（用于纯视觉背景窗）。</summary>
+    public const long WS_EX_TRANSPARENT = 0x00000020L;
+
+    // ---- 窗口 Z 序 ----
+    public const uint SWP_NOMOVE = 0x0002;
+    public const uint SWP_NOSIZE = 0x0001;
+    public const uint SWP_NOACTIVATE = 0x0010;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
+
+    // ---- 光标 ----
+    [DllImport("user32.dll")]
+    public static extern bool GetCursorPos(out POINT lpPoint);
 
     // ---- DWM 属性（Win11） ----
     /// <summary>DWMWA_SYSTEMBACKDROP_TYPE（Win11 22H2+）。</summary>

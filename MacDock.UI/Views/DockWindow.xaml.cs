@@ -1,22 +1,35 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
-using System.Windows.Media;
-using System.Windows.Media.Effects;
+using System.Windows.Media.Animation;
 using H.NotifyIcon.Core;
 using MacDock.Core.Services;
+using MacDock.UI.Controls;
 using MacDock.UI.ViewModels;
 using NLog;
 
 namespace MacDock.UI.Views;
 
 /// <summary>
-/// Dock 主窗口：无边框、置顶、点击不抢焦点、底部居中。
-/// Win11 22H2+ 走 DWM 亚克力 + 系统圆角；Win10 降级为分层窗口半透明渐变。
+/// Dock 图标层窗口：无边框分层透明、置顶、点击不抢焦点、底部居中。
+/// 毛玻璃背景由 DockBackdropWindow 承担（双窗口结构，放大的图标可溢出玻璃条上方）。
 /// </summary>
 public partial class DockWindow : Window
 {
+    // ---- 布局常量（DIP） ----
+    /// <summary>玻璃条横向内边距（静止图标行两侧留白）。</summary>
+    private const double BackdropPadX = 14;
+    /// <summary>玻璃条距屏幕工作区底边距离。</summary>
+    private const double BackdropBottomMargin = 6;
+    /// <summary>静止图标底边距玻璃条底边的内缩。</summary>
+    private const double IconBottomInset = 7;
+    /// <summary>玻璃条高度 = 图标尺寸 + 2 * IconBottomInset。</summary>
+    private static double BackdropHeight(double iconSize) => iconSize + 2 * IconBottomInset;
+
     private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
     private readonly MainViewModel _viewModel = new();
+    private readonly DockBackdropWindow _backdrop = new();
+    private FishEyePanel? _panel;
 
     public DockWindow()
     {
@@ -28,65 +41,96 @@ public partial class DockWindow : Window
 
         _viewModel.LaunchFailed += OnLaunchFailed;
 
-        if (!SystemBackdropService.IsAcrylicSupported)
-            ApplyLegacyFallback();
-
-        // 尺寸确定后定位到底部居中
         SizeChanged += (_, _) => PositionDock();
+        Loaded += (_, _) =>
+        {
+            _backdrop.Show();
+            PositionDock();
+        };
     }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
 
-        var hwnd = new WindowInteropHelper(this).Handle;
         // 追加扩展样式：置顶、点击不抢焦点、不进 Alt+Tab
-        WindowStyleService.ApplyDockStyles(hwnd);
-
-        if (SystemBackdropService.IsAcrylicSupported)
-        {
-            SystemBackdropService.ApplyRoundedCorners(hwnd);
-            // Accent 亚克力：深灰 60% 不透明起步，观感可微调 A 通道（越大越实、越小越透）
-            SystemBackdropService.ApplyAccentAcrylic(hwnd, 0x99202020);
-        }
+        WindowStyleService.ApplyDockStyles(new WindowInteropHelper(this).Handle);
     }
 
-    /// <summary>
-    /// Win10（build &lt; 22621）降级：SYSTEMBACKDROP 不可用，切回分层窗口半透明渐变。
-    /// AllowsTransparency 必须在句柄创建前设置，故放在构造函数中调用。
-    /// </summary>
-    private void ApplyLegacyFallback()
+    /// <summary>鱼眼面板加载完成：保存引用并挂接悬停事件（面板在 ItemsPanelTemplate 内，无法 x:Name）。</summary>
+    private void OnFishEyePanelLoaded(object sender, RoutedEventArgs e)
     {
-        AllowsTransparency = true;
-        RootGrid.Margin = new Thickness(26); // 容纳降级阴影的 BlurRadius(22) + 4
-        DockBorder.CornerRadius = new CornerRadius(20);
-        DockBorder.Background = new LinearGradientBrush
-        {
-            StartPoint = new Point(0, 0),
-            EndPoint = new Point(0, 1),
-            GradientStops =
-            {
-                new GradientStop(Color.FromArgb(0x8C, 0xF9, 0xF9, 0xFA), 0),
-                new GradientStop(Color.FromArgb(0x59, 0xED, 0xED, 0xF0), 1),
-            },
-        };
-        DockBorder.Effect = new DropShadowEffect
-        {
-            BlurRadius = 22,
-            ShadowDepth = 2,
-            Opacity = 0.25,
-            Color = Colors.Black,
-        };
+        _panel = (FishEyePanel)sender;
+        _panel.HoverChanged += OnHoverChanged;
+        PositionDock();
     }
 
+    /// <summary>定位图标层与玻璃条：均底部居中，玻璃条只包静止图标行并压在图标层之下。</summary>
     private void PositionDock()
     {
-        if (ActualWidth <= 0 || ActualHeight <= 0)
+        if (ActualWidth <= 0 || ActualHeight <= 0 || _panel is null)
             return;
 
-        var (left, top) = WindowPlacementService.GetBottomCenter(ActualWidth, ActualHeight, 4);
+        // 玻璃条：宽 = 静止行净宽 + 两侧留白
+        double bw = _panel.StaticContentWidth + 2 * BackdropPadX;
+        double bh = BackdropHeight(_panel.IconSize);
+        var (bLeft, bTop) = WindowPlacementService.GetBottomCenter(bw, bh, BackdropBottomMargin);
+        _backdrop.Left = bLeft;
+        _backdrop.Top = bTop;
+        _backdrop.Width = bw;
+        _backdrop.Height = bh;
+
+        // 图标层：底边 = 玻璃条底边 + 内缩（静止图标坐在玻璃条内）
+        var (left, top) = WindowPlacementService.GetBottomCenter(
+            ActualWidth, ActualHeight, BackdropBottomMargin + IconBottomInset);
         Left = left;
         Top = top;
+
+        // Z 序：玻璃条贴在图标层正下方
+        var self = new WindowInteropHelper(this).Handle;
+        if (self != IntPtr.Zero && _backdrop.Handle != IntPtr.Zero)
+            WindowStyleService.PlaceBelow(_backdrop.Handle, self);
+
+        // TODO(临时诊断)：核对图标层与玻璃条对齐、图标是否被裁剪。标签用 ASCII 便于脚本解析。
+        Logger.Info(
+            "LAYOUTDIAG win L={0:F1} T={1:F1} W={2:F1} H={3:F1} panel staticW={4:F1} c0={5:F1} cN={6:F1} icon={7:F1} slot={8:F1} bar L={9:F1} T={10:F1} W={11:F1} H={12:F1}",
+            Left, Top, ActualWidth, ActualHeight,
+            _panel.StaticContentWidth, _panel.DebugFirstCenterX, _panel.DebugLastCenterX,
+            _panel.IconSize, _panel.IconSize + _panel.Spacing,
+            bLeft, bTop, bw, bh);
+    }
+
+    // ---- macOS 风格名称气泡 ----
+    private void OnHoverChanged(int index, double centerX)
+    {
+        if (index < 0 || index >= _viewModel.Items.Count)
+        {
+            FadeBubble(0);
+            return;
+        }
+
+        NameText.Text = _viewModel.Items[index].Name;
+        NameBubble.UpdateLayout();
+
+        if (_panel is not null)
+        {
+            // 面板坐标 → 气泡画布坐标，气泡居中于悬停图标静止中心
+            var anchor = _panel.TranslatePoint(new Point(centerX, 0), LabelCanvas);
+            Canvas.SetLeft(NameBubble, anchor.X - NameBubble.ActualWidth / 2.0);
+            Canvas.SetTop(NameBubble, LabelCanvas.Height - NameBubble.ActualHeight - 4);
+        }
+
+        FadeBubble(1);
+    }
+
+    /// <summary>气泡淡入/淡出（120ms）。</summary>
+    private void FadeBubble(double to)
+    {
+        var animation = new DoubleAnimation(to, TimeSpan.FromMilliseconds(120))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+        };
+        NameBubble.BeginAnimation(OpacityProperty, animation);
     }
 
     // ---- 启动失败通知 ----
@@ -154,6 +198,7 @@ public partial class DockWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         base.OnClosed(e);
+        _backdrop.Close();
         TrayIcon.Dispose();
     }
 }
