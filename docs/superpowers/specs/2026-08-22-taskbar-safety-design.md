@@ -17,6 +17,7 @@
 - 不按进程枚举并隐藏 `explorer.exe` 或 `ApplicationFrameHost.exe` 的普通窗口。
 - 增加一个非提权、非服务、非自启动的最小 watchdog 子进程，用于主进程异常退出后的任务栏恢复。
 - 默认自动化测试不得操作真实 Explorer、注册表或任务栏；真实 Shell 集成测试只能在显式启用的一次性 Windows VM 中运行。
+- 崩溃恢复优先：文件 journal 与 `ShowWindow` 无法组成原子事务，因此租约在调用前持久化 `HidePending`。租约活动期间由 MacDock 拥有该精确主屏任务栏窗口的可见性；无法区分的并发外部隐藏请求可能在释放时被恢复为租约前的可见状态。用户已于 2026-08-22 明确批准此高风险语义。
 
 ## 方案概览
 
@@ -45,6 +46,7 @@ Core 层状态机，状态为：
 
 ```text
 Released -> Acquiring -> Active -> Releasing -> Released
+                   \-> RecoveryPending
 ```
 
 职责：
@@ -55,6 +57,7 @@ Released -> Acquiring -> Active -> Releasing -> Released
 - 只恢复由当前租约实际修改、仍满足任务栏身份校验的窗口。
 - `Release` 和 `Dispose` 幂等；释放开始后不允许新的隐藏操作。
 - 不使用终结器执行系统恢复。
+- 回滚或恢复无法验证时进入 `RecoveryPending`，保留 journal、watchdog 和跨进程锁直到进程退出。
 
 ### `ITaskbarNativeApi` / `TaskbarNativeApi`
 
@@ -88,7 +91,15 @@ journal 位于 `%AppData%\MacDock\taskbar-lease.json`，包含：
 
 写入采用同目录临时文件、刷新、原子替换。顺序必须是“先记录原状态，再执行隐藏”。恢复前重新校验句柄类名、Explorer PID 和租约身份，避免 HWND 复用后误操作其他窗口。
 
+每个窗口记录 `Unchanged`、`HidePending` 或 `HiddenByLease`。`ShowWindow` 的返回值只表示调用前的可见性，成功与否必须通过调用后重新查询可见性确认。
+
 若当前窗口状态已经被用户或其他程序改变，租约不得覆盖该外部修改；记录冲突并保留外部状态。
+
+上述约束适用于可观察到的状态变化。若外部程序在租约已隐藏窗口后提出同样的“保持隐藏”请求，该请求与租约状态不可区分；按已批准的崩溃恢复优先语义，释放时恢复租约前状态。
+
+### 跨进程恢复锁
+
+UI、watchdog 和下次启动恢复共享 `%AppData%\MacDock\taskbar-lease.lock` 的独占文件句柄。UI 在活动租约期间持有它；异常退出后由操作系统释放。watchdog 或新 UI 谁先取得锁谁执行恢复，另一方随后幂等观察 journal 已处理或 lease ID 不匹配。使用文件锁而不是线程相关的命名 Mutex，避免异步续体线程切换导致错误释放。
 
 ### `MacDock.Watchdog`
 
@@ -165,6 +176,7 @@ UI 层生命周期适配器，由 `App` 持有，不由 `MainViewModel` 持有�
 6. `TaskbarLifecycleTests`：窗口构造失败、正常退出、异常退出、Mutex 只释放一次。
 7. `WatchdogTests`：ready 前不得隐藏、正常退出不重复恢复、父进程异常退出恢复、错误 lease ID 拒绝执行。
 8. `NativeAbiTests`：结构体大小、字段偏移和指针宽度。
+9. `TaskbarLeaseFileLockTests`：跨进程恢复互斥、释放后重试与取消失败关闭。
 
 默认测试全部使用 fake，不启动 watchdog 真进程、不调用真实 `ShowWindow`。单独的 Shell 集成测试项目或测试类别必须显式 opt-in，并只在一次性 Windows VM / 测试用户配置文件中运行。
 
