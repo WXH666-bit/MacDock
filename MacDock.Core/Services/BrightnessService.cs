@@ -117,15 +117,26 @@ internal sealed class WmiBrightnessProvider : IBrightnessProvider
     private const string MethodsClass = "WmiMonitorBrightnessMethods";
     private const string MethodName = "WmiSetBrightness";
 
+    /// <summary>首查失败后重试的 TTL（避免把一次瞬时失败永久当成「不支持」）。</summary>
+    private static readonly TimeSpan UnavailableRetryTtl = TimeSpan.FromSeconds(60);
+
     private readonly object _sync = new();
     private bool? _available;
+    private DateTime _availableFetchedAt;
 
     public bool IsAvailable()
     {
         lock (_sync)
         {
-            if (!_available.HasValue)
-                _available = QueryAvailable();
+            // 成功可长期缓存；失败短暂缓存，过 60 秒到期重试（台式机可能热插显示器）
+            if (_available.HasValue
+                && (_available.Value || DateTime.UtcNow - _availableFetchedAt < UnavailableRetryTtl))
+            {
+                return _available.Value;
+            }
+
+            _available = QueryAvailable();
+            _availableFetchedAt = DateTime.UtcNow;
             return _available.Value;
         }
     }

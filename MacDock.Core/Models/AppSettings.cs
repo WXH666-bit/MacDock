@@ -13,4 +13,10 @@ public sealed class AppSettings
     /// AppBar 副作用不可控时用户可置 false 一键回退到覆盖式（M2.1 行为）。
     /// </summary>
     public bool MenuBarReserveWorkArea { get; set; } = true;
+
+    /// <summary>
+    /// 是否接管任务栏托盘（默认开）。跨进程只读 explorer 托盘数据属高风险特性，
+    /// 出问题时可置 false 一键回退（菜单栏不显示托盘区，原生任务栏托盘不受影响）。
+    /// </summary>
+    public bool TrayTakeover { get; set; } = true;
 }

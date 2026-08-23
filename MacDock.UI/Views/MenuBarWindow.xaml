@@ -12,6 +12,20 @@
     <Window.Resources>
         <conv:IconStateToGeometryConverter x:Key="IconToGeometry"/>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+
+        <!-- 托盘图标项模板：可见区与溢出区共用，点击转发由 code-behind 处理 -->
+        <DataTemplate x:Key="TrayItemTemplate">
+            <Border Margin="5,0"
+                    Width="24" Height="24"
+                    Background="Transparent"
+                    CornerRadius="5"
+                    Cursor="Hand"
+                    ToolTip="{Binding Tooltip}"
+                    MouseLeftButtonUp="OnTrayMouseLeft"
+                    MouseRightButtonUp="OnTrayMouseRight">
+                <Image Source="{Binding Icon}" Width="16" Height="16"/>
+            </Border>
+        </DataTemplate>
     </Window.Resources>
     <!--
         顶部菜单栏：主屏通栏，贴顶 y=0，宽度=主屏全宽。
@@ -77,11 +91,62 @@
                            TextTrimming="CharacterEllipsis"/>
             </StackPanel>
 
-            <!-- 中：M2.2 控制中心（音量/亮度）→ 托盘区预留 -->
+            <!-- 右：托盘区（音量左侧）+ 控制中心（音量/亮度）+ 时间 -->
             <StackPanel Grid.Column="2"
                         Orientation="Horizontal"
                         VerticalAlignment="Center"
                         HorizontalAlignment="Right">
+                <!-- 托盘区（接管任务栏托盘，TrayTakeover=false 时整块隐藏） -->
+                <StackPanel x:Name="TrayRegion"
+                            Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding IsTrayEnabled, Converter={StaticResource BoolToVisibility}}">
+                    <!-- 可见托盘图标 -->
+                    <ItemsControl ItemsSource="{Binding Visible}"
+                                  ItemTemplate="{StaticResource TrayItemTemplate}"
+                                  VerticalAlignment="Center"/>
+
+                    <!-- 溢出 chevron（有隐藏图标时显示，点击弹 Popup） -->
+                    <Border x:Name="OverflowChevron"
+                            Visibility="{Binding HasOverflow, Converter={StaticResource BoolToVisibility}}"
+                            Width="18" Height="24"
+                            Background="Transparent"
+                            CornerRadius="4"
+                            Cursor="Hand"
+                            ToolTip="隐藏的图标"
+                            MouseLeftButtonUp="OnChevronClick">
+                        <!-- 上折角箭头（^）：矢量 Path -->
+                        <Path Width="9" Height="9"
+                              Stretch="Uniform"
+                              Fill="#D9FFFFFF"
+                              Data="M0.5,6 L4.5,2 L8.5,6 L7.3,7.2 L4.5,4.4 L1.7,7.2 Z"/>
+                    </Border>
+
+                    <!-- 溢出图标弹层：StaysOpen=False 点外部自动关，背景深色卡片与音量浮窗一致 -->
+                    <Popup x:Name="OverflowPopup"
+                           StaysOpen="False"
+                           AllowsTransparency="True"
+                           Placement="Bottom"
+                           PlacementTarget="{Binding ElementName=OverflowChevron}"
+                           HorizontalOffset="-8" VerticalOffset="4">
+                        <Border CornerRadius="10"
+                                Background="#F2242428"
+                                BorderThickness="1"
+                                BorderBrush="#26FFFFFF"
+                                Padding="8,10"
+                                Margin="0,4,0,0">
+                            <ItemsControl ItemsSource="{Binding Overflow}"
+                                          ItemTemplate="{StaticResource TrayItemTemplate}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" MaxWidth="240"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </Border>
+                    </Popup>
+                </StackPanel>
+
                 <!-- 亮度（不支持时整个隐藏） -->
                 <Border x:Name="BrightnessIcon"
                         Visibility="{Binding IsBrightnessAvailable, Converter={StaticResource BoolToVisibility}}"
@@ -99,8 +164,9 @@
                           Data="M12,4 L13.7,10.3 L20,12 L13.7,13.7 L12,20 L10.3,13.7 L4,12 L10.3,10.3 Z"/>
                 </Border>
 
-                <!-- 音量：喇叭图标 + 百分比 -->
+                <!-- 音量：喇叭图标 + 百分比（无音频设备时整块隐藏，与亮度图标语义一致） -->
                 <Border x:Name="VolumeIcon"
+                        Visibility="{Binding IsAudioAvailable, Converter={StaticResource BoolToVisibility}}"
                         Width="26" Height="24"
                         Background="Transparent"
                         CornerRadius="5"
@@ -115,6 +181,7 @@
                 </Border>
 
                 <TextBlock Text="{Binding VolumePercent}"
+                           Visibility="{Binding IsAudioAvailable, Converter={StaticResource BoolToVisibility}}"
                            Foreground="#D9FFFFFF"
                            FontSize="12"
                            VerticalAlignment="Center"

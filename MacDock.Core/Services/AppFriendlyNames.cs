@@ -25,9 +25,6 @@ public static class AppFriendlyNames
             ["WINWORD"] = "Microsoft Word",
             ["EXCEL"] = "Microsoft Excel",
             ["POWERPNT"] = "PowerPoint",
-            ["WINWORD.EXE"] = "Microsoft Word",
-            ["EXCEL.EXE"] = "Microsoft Excel",
-            ["POWERPNT.EXE"] = "PowerPoint",
             ["WeChat"] = "微信",
             ["Weixin"] = "微信",
             ["QQ"] = "QQ",
@@ -41,7 +38,6 @@ public static class AppFriendlyNames
             ["Snipaste"] = "Snipaste",
             ["mstsc"] = "远程桌面连接",
             ["Pinyin"] = "微软拼音",
-            ["WPS"] = "WPS Office",
             ["wps"] = "WPS Office",
         };
 

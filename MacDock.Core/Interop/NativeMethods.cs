@@ -318,6 +318,19 @@ internal static class NativeMethods
 
     [DllImport("shell32.dll")]
     public static extern int SHGetImageList(int iImageList, ref Guid riid, out IntPtr ppv);
+
+    // ---- Shell 项（UWP 应用显示名） ----
+    /// <summary>SIGDN_NORMALDISPLAY：项的常规显示名（本地化）。</summary>
+    public const uint SIGDN_NORMALDISPLAY = 0x00000000;
+
+    /// <summary>
+    /// 由解析名（如 AUMID "Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"）创建 shell 项。
+    /// 返回 HRESULT；成功时经 iid 输出 IShellItem。
+    /// </summary>
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+    public static extern int SHCreateItemFromParsingName(
+        string pszPath, IntPtr pbc, ref Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out IShellItem ppv);
 }
 
 /// <summary>ACCENT_POLICY：窗口合成策略。GradientColor 格式 (A&lt;&lt;24)|(B&lt;&lt;16)|(G&lt;&lt;8)|R。</summary>
@@ -394,4 +407,20 @@ internal interface IImageList
     [PreserveSig] int Draw(ref IMAGELISTDRAWPARAMS pimldp);
     [PreserveSig] int Remove(int i);
     [PreserveSig] int GetIcon(int i, int flags, out IntPtr picon);
+}
+
+/// <summary>
+/// IShellItem：shell 项的最小声明。仅实际调用 GetDisplayName（第 3 个 vtable 槽），
+/// 前面的方法按真实接口顺序声明以保证 vtable 布局正确。
+/// </summary>
+[ComImport]
+[Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IShellItem
+{
+    [PreserveSig] int BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+    [PreserveSig] int GetParent(out IShellItem ppsi);
+    [PreserveSig] int GetDisplayName(uint sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string? ppszName);
+    [PreserveSig] int GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+    [PreserveSig] int Compare(IShellItem psi, uint hint, out int piOrder);
 }

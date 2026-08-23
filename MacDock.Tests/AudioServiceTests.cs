@@ -44,9 +44,32 @@ public sealed class AudioServiceTests
         public void Dispose() => Disposed = true;
     }
 
+    private sealed class FakeNotifier : IAudioVolumeNotifier
+    {
+        public bool RegisterResult { get; set; } = true;
+
+        public bool RegisterCalled { get; private set; }
+
+        public bool Disposed { get; private set; }
+
+        public event Action? VolumeChanged;
+
+        public bool TryRegister()
+        {
+            RegisterCalled = true;
+            return RegisterResult;
+        }
+
+        public void Raise() => VolumeChanged?.Invoke();
+
+        public void Dispose() => Disposed = true;
+    }
+
     private sealed class FakeFactory : IAudioEndpointFactory
     {
         public FakeEndpoint? Endpoint { get; set; } = new FakeEndpoint();
+
+        public FakeNotifier Notifier { get; } = new();
 
         public int GetCount { get; private set; }
 
@@ -54,6 +77,12 @@ public sealed class AudioServiceTests
         {
             GetCount++;
             return Endpoint;
+        }
+
+        public IAudioVolumeNotifier CreateNotificationSource() => Notifier;
+
+        public void Dispose()
+        {
         }
     }
 
@@ -141,5 +170,42 @@ public sealed class AudioServiceTests
         service.GetVolume();
         Assert.True(endpoint.Disposed);
         Assert.Equal(1, factory.GetCount);
+    }
+
+    [Fact]
+    public void Ctor_RegistersNotificationSource()
+    {
+        var factory = new FakeFactory();
+
+        using var service = new AudioService(factory);
+
+        Assert.True(factory.Notifier.RegisterCalled);
+    }
+
+    [Fact]
+    public void NotifierVolumeChange_RaisesServiceVolumeChanged()
+    {
+        var factory = new FakeFactory();
+        var raised = 0;
+        using var service = new AudioService(factory);
+        service.VolumeChanged += () => raised++;
+
+        factory.Notifier.Raise();
+
+        Assert.Equal(1, raised);
+    }
+
+    [Fact]
+    public void Dispose_UnsubscribesAndDisposesNotifier()
+    {
+        var factory = new FakeFactory();
+        var service = new AudioService(factory);
+        service.VolumeChanged += () => { };
+
+        service.Dispose();
+
+        Assert.True(factory.Notifier.Disposed);
+        // Dispose 后不再触发
+        factory.Notifier.Raise();
     }
 }

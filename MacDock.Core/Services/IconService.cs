@@ -138,6 +138,28 @@ public sealed class IconService
     /// <summary>占位图标（异步加载完成前显示；已冻结，线程安全）。</summary>
     public static BitmapSource GetPlaceholderIcon() => CreatePlaceholderIcon();
 
+    /// <summary>
+    /// 将 HICON 转为已冻结的 BitmapSource（不销毁源 HICON，供托盘等外部图标使用）。
+    /// 可在后台线程调用；返回的位图已 Freeze，跨线程安全。
+    /// </summary>
+    public static BitmapSource FromHIcon(IntPtr hIcon)
+    {
+        if (hIcon == IntPtr.Zero)
+            return CreatePlaceholderIcon();
+
+        try
+        {
+            var source = Imaging.CreateBitmapSourceFromHIcon(
+                hIcon, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            source.Freeze();
+            return source;
+        }
+        catch
+        {
+            return CreatePlaceholderIcon();
+        }
+    }
+
     /// <summary>返回一个全透明占位图标：加载完成前不显示灰色方块，图标就位后直接替换。</summary>
     private static BitmapSource CreatePlaceholderIcon()
     {

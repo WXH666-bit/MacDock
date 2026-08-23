@@ -37,7 +37,6 @@ public partial class MenuBarFlyoutWindow : Window
         InitializeComponent();
         DataContext = _viewModel;
 
-        Loaded += OnLoaded;
         Deactivated += OnDeactivated;
 
         // 拖动滑条会短暂失去焦点（移动焦点到滑条），Deactivated 只在焦点真正离开本窗口时触发
@@ -45,17 +44,12 @@ public partial class MenuBarFlyoutWindow : Window
         ValueSlider.PreviewMouseUp += (_, _) => _viewModel.EndUserInput();
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        Loaded -= OnLoaded;
-        AnimateIn();
-    }
-
-    /// <summary>从图标下方弹出（anchorPx 为屏幕物理像素，x=图标中线）。</summary>
+    /// <summary>从图标下方弹出（anchorPx 为屏幕物理像素，x=图标中线），每次弹出都触发入场动画。</summary>
     public void ShowBelowIcon(System.Windows.Point anchorPx)
     {
         try
         {
+            // 收起动画进行中再点：清掉收起状态让本次弹出接管（BeginAnimation 覆盖，无残影）
             _closing = false;
             if (!_isOpen)
             {
@@ -64,6 +58,7 @@ public partial class MenuBarFlyoutWindow : Window
             }
 
             PositionNear(anchorPx);
+            AnimateIn();
         }
         catch (Exception exception)
         {

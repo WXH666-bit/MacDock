@@ -80,6 +80,7 @@ public sealed class AppSettingsStore : IAppSettingsStore
             int? schemaVersion = null;
             bool? hideWindowsTaskbar = null;
             bool? menuBarReserveWorkArea = null;
+            bool? trayTakeover = null;
 
             while (reader.Read())
             {
@@ -98,8 +99,9 @@ public sealed class AppSettingsStore : IAppSettingsStore
                     {
                         SchemaVersion = schemaVersion.Value,
                         HideWindowsTaskbar = hideWindowsTaskbar.Value,
-                        // 老配置无此键时取默认 true（新字段向后兼容）
+                        // 老配置无键时取默认 true（新字段向后兼容）
                         MenuBarReserveWorkArea = menuBarReserveWorkArea ?? true,
+                        TrayTakeover = trayTakeover ?? true,
                     };
                 }
 
@@ -160,6 +162,23 @@ public sealed class AppSettingsStore : IAppSettingsStore
                         menuBarReserveWorkArea = reader.GetBoolean();
                         break;
 
+                    case nameof(AppSettings.TrayTakeover):
+                        if (trayTakeover.HasValue)
+                        {
+                            throw new JsonException(
+                                "The app settings document contains duplicate TrayTakeover.");
+                        }
+
+                        if (!reader.Read()
+                            || (reader.TokenType != JsonTokenType.True
+                                && reader.TokenType != JsonTokenType.False))
+                        {
+                            throw new JsonException("TrayTakeover must be a JSON boolean.");
+                        }
+
+                        trayTakeover = reader.GetBoolean();
+                        break;
+
                     default:
                         throw new JsonException(
                             $"The app settings document contains unknown member '{propertyName}'.");
@@ -180,6 +199,9 @@ public sealed class AppSettingsStore : IAppSettingsStore
             writer.WriteBoolean(
                 nameof(AppSettings.MenuBarReserveWorkArea),
                 value.MenuBarReserveWorkArea);
+            writer.WriteBoolean(
+                nameof(AppSettings.TrayTakeover),
+                value.TrayTakeover);
             writer.WriteEndObject();
         }
     }

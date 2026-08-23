@@ -73,19 +73,19 @@ internal interface IMMDevice
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 internal interface IAudioEndpointVolume
 {
-    /// <summary>注册音量变化回调（M2.3 再用，槽位占位）。</summary>
+    /// <summary>注册音量变化回调（ReceiveControlChangeNotifications）。</summary>
     [PreserveSig]
-    int RegisterControlChangeNotify(IntPtr client);
+    int RegisterControlChangeNotify(IAudioEndpointVolumeCallback client);
 
-    /// <summary>注销音量变化回调（槽位占位）。</summary>
+    /// <summary>注销音量变化回调。</summary>
     [PreserveSig]
-    int UnregisterControlChangeNotify(IntPtr client);
+    int UnregisterControlChangeNotify(IAudioEndpointVolumeCallback client);
 
     /// <summary>取声道数（槽位占位）。</summary>
     [PreserveSig]
     int GetChannelCount(out uint channelCount);
 
-    /// <summary>取主音量（0.0-1.0 标量）。</summary>
+    /// <summary>按分贝设置主音量。</summary>
     [PreserveSig]
     int SetMasterVolumeLevel(float levelDb, ref Guid eventContext);
 
@@ -124,6 +124,36 @@ internal interface IAudioEndpointVolume
     /// <summary>查询静音状态。</summary>
     [PreserveSig]
     int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+}
+
+/// <summary>
+/// IAudioEndpointVolumeCallback：音量端点变化通知。
+/// 接口 IUnknown 之后仅一个方法 OnNotify(PAUDIO_VOLUME_NOTIFICATION_DATA*)。
+/// </summary>
+[ComImport]
+[Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioEndpointVolumeCallback
+{
+    /// <summary>
+    /// 音量/静音变化回调（COM 原生线程调用）。参数为 PAUDIO_VOLUME_NOTIFICATION_DATA 数组指针
+    /// （该接口每回调传入长度为 1 的数组）。bMuted 为 1 表示静音，fMasterVolume 为 0.0-1.0。
+    /// </summary>
+    [PreserveSig]
+    int OnNotify(IntPtr pNotifyData);
+}
+
+/// <summary>
+/// PAUDIO_VOLUME_NOTIFICATION_DATA 的结构（AudioVolumeNotificationData）前导字段。
+/// 后续为 nChannels 个声道音量，我们只关心 bMuted / fMasterVolume，故不声明声道数组。
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct AudioVolumeNotificationData
+{
+    public Guid guidEventContext;
+    public int bMuted;        // BOOL
+    public float fMasterVolume;   // 0.0-1.0
+    public uint nChannels;
 }
 
 /// <summary>

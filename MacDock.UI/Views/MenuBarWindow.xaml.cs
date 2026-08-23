@@ -26,6 +26,8 @@ public partial class MenuBarWindow : Window
     private readonly MenuBarViewModel _viewModel;
     private readonly AppBarService _appBar = new();
     private readonly bool _reserveWorkArea;
+    private readonly TrayIconReader _trayReader;
+    private readonly TrayAreaViewModel _trayVm;
     private readonly MenuBarFlyoutWindow? _flyout;
     private AboutWindow? _aboutWindow;
     private HwndSource? _hwndSource;
@@ -34,7 +36,8 @@ public partial class MenuBarWindow : Window
 
     /// <param name="viewModel">菜单栏视图模型。</param>
     /// <param name="reserveWorkArea">是否注册 AppBar 保留工作区（设置项 MenuBarReserveWorkArea）。</param>
-    public MenuBarWindow(MenuBarViewModel viewModel, bool reserveWorkArea = true)
+    /// <param name="trayTakeover">是否接管任务栏托盘（设置项 TrayTakeover）。</param>
+    public MenuBarWindow(MenuBarViewModel viewModel, bool reserveWorkArea = true, bool trayTakeover = true)
     {
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _reserveWorkArea = reserveWorkArea;
@@ -42,6 +45,12 @@ public partial class MenuBarWindow : Window
         InitializeComponent();
         DataContext = _viewModel;
         Height = BarHeight;
+
+        // 托盘读取器 + 托盘区 VM（接管任务栏托盘；TrayTakeover=false 只显示空区）
+        _trayReader = new TrayIconReader();
+        _trayVm = new TrayAreaViewModel(_trayReader, trayTakeover);
+        TrayRegion.DataContext = _trayVm;
+        _trayVm.Start();
 
         // 浮窗在构造时创建：滑条写回依当前模式分派到音量/亮度，静音按钮固定走音量
         var flyoutViewModel = new MenuBarFlyoutViewModel(
@@ -112,7 +121,7 @@ public partial class MenuBarWindow : Window
         _hwndSource?.AddHook(WndProc);
     }
 
-    /// <summary>AppBar / 系统消息回调。</summary>
+    /// <summary>AppBar / 系统消息回调（含 explorer 重启广播）。</summary>
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (_appBar.IsRegistered
@@ -131,7 +140,46 @@ public partial class MenuBarWindow : Window
             }
         }
 
+        // explorer 重启：托盘窗口全部重建，重置并立即重枚举托盘区（消息 ID 为 0 说明注册失败，跳过）
+        if (TrayIconReader.TaskbarCreatedMessage != 0
+            && msg == (int)TrayIconReader.TaskbarCreatedMessage)
+        {
+            _trayVm.ResetForExplorerRestart();
+            handled = true;
+        }
+
         return IntPtr.Zero;
+    }
+
+    /// <summary>托盘图标左键：单击转发左键抬起，双击触发双击消息。</summary>
+    private void OnTrayMouseLeft(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not TrayIconItem item)
+            return;
+
+        // WPF 的 ClickCount 区分单击/双击；双击发 WM_LBUTTONDBLCLK，否则发 WM_LBUTTONUP
+        var message = e.ClickCount >= 2
+            ? TrayIconForwarder.MouseLeftDoubleClick
+            : TrayIconForwarder.MouseLeftButtonUp;
+        _trayVm.ForwardClick(item, message);
+        e.Handled = true;
+    }
+
+    /// <summary>托盘图标右键：转发右键抬起（弹上下文菜单）。</summary>
+    private void OnTrayMouseRight(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not TrayIconItem item)
+            return;
+
+        _trayVm.ForwardClick(item, TrayIconForwarder.MouseRightButtonUp);
+        e.Handled = true;
+    }
+
+    /// <summary>chevron 点击：弹出/收起溢出图标弹层。</summary>
+    private void OnChevronClick(object sender, MouseButtonEventArgs e)
+    {
+        OverflowPopup.IsOpen = !OverflowPopup.IsOpen;
+        e.Handled = true;
     }
 
     /// <summary>全屏应用出现：隐藏菜单栏（AppBar 保持注册，工作区暂不归还——退出全屏即恢复）。</summary>
@@ -313,6 +361,8 @@ public partial class MenuBarWindow : Window
         _hwndSource?.RemoveHook(WndProc);
         _hwndSource = null;
         _appBar.Dispose();
+        _trayVm.Dispose();
+        _trayReader.Dispose();
         _flyout?.Close();
         _aboutWindow?.Close();
         _aboutWindow = null;

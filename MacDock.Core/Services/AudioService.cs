@@ -24,23 +24,32 @@ internal interface IAudioEndpoint : IDisposable
 }
 
 /// <summary>默认播放端点工厂的抽象（真实实现走 Core Audio COM 链路）。</summary>
-internal interface IAudioEndpointFactory
+internal interface IAudioEndpointFactory : IDisposable
 {
     /// <summary>取默认播放端点；失败返回 null。</summary>
     IAudioEndpoint? GetDefaultRender();
+
+    /// <summary>创建音量端点变化通知源（替代 500ms 轮询）。</summary>
+    IAudioVolumeNotifier CreateNotificationSource();
 }
 
 /// <summary>
 /// 音量控制服务：主音量读取/设置与静音（Core Audio COM，手写 interop，不加 NuGet）。
 /// 供菜单栏喇叭图标、浮窗滑条与滚轮步进使用。
 /// 任何失败都不抛异常——返回 false 或 null，由 UI 决定降级表现。
+/// 同时持有长驻音量端点变化回调，替代 500ms 轮询：<see cref="VolumeChanged"/> 在系统音量变化时触发。
 /// </summary>
 public sealed class AudioService : IDisposable
 {
     private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
     private readonly IAudioEndpointFactory _factory;
+    private readonly IAudioVolumeNotifier _notifier;
+    private readonly object _sync = new();
     private bool _disposed;
+
+    /// <summary>系统音量/静音变化时触发（可能在 COM 原生线程，订阅方自行封送）。</summary>
+    public event Action? VolumeChanged;
 
     public AudioService() : this(new Win32AudioEndpointFactory())
     {
@@ -50,6 +59,22 @@ public sealed class AudioService : IDisposable
     internal AudioService(IAudioEndpointFactory factory)
     {
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _notifier = factory.CreateNotificationSource();
+        _notifier.VolumeChanged += OnNotifierChanged;
+        _notifier.TryRegister();
+    }
+
+    private void OnNotifierChanged() => VolumeChanged?.Invoke();
+
+    /// <summary>是否存在可用播放设备（无音频设备时为 false，UI 据此隐藏音量图标）。</summary>
+    public bool IsAvailable
+    {
+        get
+        {
+            TryDisposeGuard();
+            using var endpoint = _factory.GetDefaultRender();
+            return endpoint is not null;
+        }
     }
 
     /// <summary>取主音量（0.0-1.0）。失败返回 null。</summary>
@@ -90,16 +115,23 @@ public sealed class AudioService : IDisposable
             return;
 
         _disposed = true;
-        if (_factory is IDisposable disposable)
+        _notifier.VolumeChanged -= OnNotifierChanged;
+        try
         {
-            try
-            {
-                disposable.Dispose();
-            }
-            catch (Exception exception)
-            {
-                Logger.Debug(exception, "释放音频服务失败");
-            }
+            _notifier.Dispose();
+        }
+        catch (Exception exception)
+        {
+            Logger.Debug(exception, "释放音量通知源失败");
+        }
+
+        try
+        {
+            _factory.Dispose();
+        }
+        catch (Exception exception)
+        {
+            Logger.Debug(exception, "释放音频服务失败");
         }
     }
 
@@ -153,6 +185,9 @@ internal sealed class Win32AudioEndpointFactory : IAudioEndpointFactory, IDispos
             return null;
         }
     }
+
+    /// <summary>创建音量端点变化通知源（共享同一个设备枚举器）。</summary>
+    public IAudioVolumeNotifier CreateNotificationSource() => new Win32AudioVolumeNotifier(_enumerator);
 
     public void Dispose()
     {
