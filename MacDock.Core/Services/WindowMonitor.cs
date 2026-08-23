@@ -7,15 +7,22 @@ using NLog;
 namespace MacDock.Core.Services;
 
 /// <summary>
-/// 窗口监控服务：通过 SetWinEventHook 监听系统窗口事件（前台切换/最小化/还原/显示/销毁），
+/// 窗口监控服务：通过 SetWinEventHook 监听系统窗口事件（前台切换/显示/销毁），
 /// 维护当前具有可见顶层窗口的进程集合，供 Dock 显示运行状态小圆点。
+/// 语义与 macOS 一致：最小化不等于退出，最小化的应用仍视为运行中。
 /// </summary>
 public sealed class WindowMonitor : IDisposable
 {
     private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
-    /// <summary>有可见顶层窗口的进程名集合（小写，不含扩展名）。</summary>
+    /// <summary>保护 <see cref="_visibleProcesses"/> 与 <see cref="_pidToExeName"/> 的锁对象。</summary>
+    private readonly object _sync = new();
+
+    /// <summary>有可见顶层窗口的进程名集合（不含扩展名，忽略大小写）。</summary>
     private readonly HashSet<string> _visibleProcesses = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>PID → 进程名映射，用于进程已退出时仍能定位要注销的进程名。</summary>
+    private readonly Dictionary<uint, string> _pidToExeName = new();
 
     /// <summary>被排除的进程名（explorer 等始终存在的系统进程）。</summary>
     private static readonly HashSet<string> ExcludedProcesses = new(StringComparer.OrdinalIgnoreCase)
@@ -37,14 +44,18 @@ public sealed class WindowMonitor : IDisposable
     /// <summary>WinEventHook 回调委托（必须保持引用，否则被 GC 回收）。</summary>
     private readonly NativeMethods.WinEventDelegate _winEventProc;
 
-    /// <summary>正在运行的进程名集合只读视图。</summary>
-    public IReadOnlyCollection<string> RunningProcesses => _visibleProcesses;
+    /// <summary>正在运行的进程名快照。</summary>
+    public IReadOnlyCollection<string> RunningProcesses
+    {
+        get
+        {
+            lock (_sync)
+                return _visibleProcesses.ToArray();
+        }
+    }
 
-    /// <summary>当运行进程集合发生变化时触发。</summary>
+    /// <summary>当运行进程集合发生变化时触发（参数：进程名、是否运行中）。</summary>
     public event Action<string, bool>? RunningStateChanged;
-
-    /// <summary>当 explorer.exe 重启（任务栏重建）时触发。</summary>
-    public event Action? TaskbarRecreated;
 
     public WindowMonitor()
     {
@@ -59,17 +70,20 @@ public sealed class WindowMonitor : IDisposable
         if (string.IsNullOrWhiteSpace(exeName))
             return false;
 
-        return _visibleProcesses.Contains(Path.GetFileNameWithoutExtension(exeName));
+        lock (_sync)
+            return _visibleProcesses.Contains(Path.GetFileNameWithoutExtension(exeName));
     }
 
     /// <summary>刷新全部状态：重新枚举当前可见窗口。</summary>
     public void Refresh()
     {
-        lock (_visibleProcesses)
+        lock (_sync)
         {
             _visibleProcesses.Clear();
-            ScanExistingWindows();
+            _pidToExeName.Clear();
         }
+
+        ScanExistingWindows();
     }
 
     private void HookEvents()
@@ -79,8 +93,6 @@ public sealed class WindowMonitor : IDisposable
             NativeMethods.EVENT_SYSTEM_FOREGROUND,
             NativeMethods.EVENT_OBJECT_SHOW,
             NativeMethods.EVENT_OBJECT_DESTROY,
-            NativeMethods.EVENT_SYSTEM_MINIMIZEEND,
-            NativeMethods.EVENT_SYSTEM_MINIMIZESTART,
         };
 
         foreach (uint evt in events)
@@ -134,17 +146,8 @@ public sealed class WindowMonitor : IDisposable
                     break;
 
                 case NativeMethods.EVENT_OBJECT_DESTROY:
-                case NativeMethods.EVENT_SYSTEM_MINIMIZESTART:
-                    if (ShouldIgnore(hWnd))
-                        break;
+                    // 销毁时窗口已不可见，不能走 ShouldIgnore（它以可见性为前提）
                     UnregisterWindow(hWnd);
-                    break;
-
-                case NativeMethods.EVENT_SYSTEM_MINIMIZEEND:
-                    if (ShouldIgnore(hWnd))
-                        break;
-                    if (NativeMethods.IsWindowVisible(hWnd))
-                        RegisterWindow(hWnd);
                     break;
             }
         }
@@ -197,25 +200,19 @@ public sealed class WindowMonitor : IDisposable
         if (pid == 0)
             return;
 
-        try
+        var exeName = ResolveExeName(pid);
+        if (exeName is null || ExcludedProcesses.Contains(exeName))
+            return;
+
+        bool added;
+        lock (_sync)
         {
-            using var proc = Process.GetProcessById((int)pid);
-            var name = proc.ProcessName;
-            if (ExcludedProcesses.Contains(name))
-                return;
-
-            var exeName = Path.GetFileNameWithoutExtension(proc.MainModule?.FileName ?? name);
-            if (string.IsNullOrWhiteSpace(exeName))
-                return;
-
-            lock (_visibleProcesses)
-            {
-                var added = _visibleProcesses.Add(exeName);
-                if (added)
-                    OnRunningStateChanged(exeName, true);
-            }
+            _pidToExeName[pid] = exeName;
+            added = _visibleProcesses.Add(exeName);
         }
-        catch { }
+
+        if (added)
+            RunningStateChanged?.Invoke(exeName, true);
     }
 
     private void UnregisterWindow(IntPtr hWnd)
@@ -224,44 +221,68 @@ public sealed class WindowMonitor : IDisposable
         if (pid == 0)
             return;
 
+        // 进程可能已退出，此时 Process.GetProcessById 会抛异常；回落到 PID → 进程名缓存
+        string? exeName = ResolveExeName(pid);
+        if (exeName is null)
+        {
+            lock (_sync)
+                _pidToExeName.TryGetValue(pid, out exeName);
+        }
+
+        if (string.IsNullOrWhiteSpace(exeName) || ExcludedProcesses.Contains(exeName))
+            return;
+
+        // 确认该 PID 没有其他可见顶层窗口（多窗口应用关掉一个窗口时圆点应保留）
+        bool hasOtherVisible = false;
+        NativeMethods.EnumWindows((h, _) =>
+        {
+            if (h == hWnd)
+                return true;
+            NativeMethods.GetWindowThreadProcessId(h, out uint pid2);
+            if (pid2 == pid && !ShouldIgnore(h))
+            {
+                hasOtherVisible = true;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+
+        if (hasOtherVisible)
+            return;
+
+        bool removed;
+        lock (_sync)
+        {
+            _pidToExeName.Remove(pid);
+
+            // 同名进程可能有多个实例（如多开的 exe），仍有其他 PID 时不熄灯
+            var stillAlive = _pidToExeName.Values.Any(
+                v => string.Equals(v, exeName, StringComparison.OrdinalIgnoreCase));
+            removed = !stillAlive && _visibleProcesses.Remove(exeName);
+        }
+
+        if (removed)
+            RunningStateChanged?.Invoke(exeName, false);
+    }
+
+    /// <summary>取 PID 对应的进程名（不含扩展名）；进程已退出或无权访问时返回 null。</summary>
+    private static string? ResolveExeName(uint pid)
+    {
         try
         {
             using var proc = Process.GetProcessById((int)pid);
-            var exeName = Path.GetFileNameWithoutExtension(proc.MainModule?.FileName ?? proc.ProcessName);
-
-            // 确认该 PID 没有其他可见顶层窗口
-            bool hasOtherVisible = false;
-            NativeMethods.EnumWindows((h, _) =>
-            {
-                if (h == hWnd)
-                    return true;
-                uint pid2;
-                NativeMethods.GetWindowThreadProcessId(h, out pid2);
-                if (pid2 == pid && !ShouldIgnore(h) && NativeMethods.IsWindowVisible(h))
-                {
-                    hasOtherVisible = true;
-                    return false;
-                }
-                return true;
-            }, IntPtr.Zero);
-
-            if (!hasOtherVisible)
-            {
-                lock (_visibleProcesses)
-                {
-                    if (_visibleProcesses.Remove(exeName))
-                        OnRunningStateChanged(exeName, false);
-                }
-            }
+            var name = proc.ProcessName;
+            return string.IsNullOrWhiteSpace(name) ? null : name;
         }
-        catch { }
-    }
-
-    private void OnRunningStateChanged(string exeName, bool isRunning)
-    {
-        RunningStateChanged?.Invoke(exeName, isRunning);
-        if (string.Equals(exeName, "explorer", StringComparison.OrdinalIgnoreCase))
-            TaskbarRecreated?.Invoke();
+        catch (ArgumentException)
+        {
+            // 进程已退出
+            return null;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     public void Dispose()
@@ -273,7 +294,13 @@ public sealed class WindowMonitor : IDisposable
             NativeMethods.UnhookWinEvent(hHook);
 
         _hookHandles.Clear();
-        _visibleProcesses.Clear();
+
+        lock (_sync)
+        {
+            _visibleProcesses.Clear();
+            _pidToExeName.Clear();
+        }
+
         _disposed = true;
         GC.SuppressFinalize(this);
     }

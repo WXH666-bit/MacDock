@@ -131,6 +131,13 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
 
+    /// <summary>
+    /// 注册（或取回）一个全局唯一的窗口消息 ID，用于接收 Shell 广播消息（如 TaskbarCreated）。
+    /// 失败返回 0。
+    /// </summary>
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    public static extern uint RegisterWindowMessageW(string lpString);
+
     // ---- 窗口枚举 ----
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+using MacDock.Core.Interop;
 
 namespace MacDock.Core.Services.Taskbar;
 
@@ -39,7 +39,7 @@ public sealed class ShellMessageClassifier
     /// </summary>
     public static ShellMessageClassifier CreateForCurrentProcess()
     {
-        var message = RegisterWindowMessageW(TaskbarCreatedMessageName);
+        var message = NativeMethods.RegisterWindowMessageW(TaskbarCreatedMessageName);
         if (message == 0)
         {
             throw new InvalidOperationException(
@@ -51,11 +51,4 @@ public sealed class ShellMessageClassifier
 
     public bool IsShellEnvironmentChange(uint message)
         => message == _taskbarCreatedMessage || message == WmDisplayChange;
-
-    [DllImport(
-        "user32.dll",
-        CharSet = CharSet.Unicode,
-        ExactSpelling = true,
-        SetLastError = true)]
-    private static extern uint RegisterWindowMessageW(string lpString);
 }

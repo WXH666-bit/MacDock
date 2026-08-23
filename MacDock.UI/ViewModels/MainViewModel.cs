@@ -53,16 +53,14 @@ public partial class MainViewModel : ObservableObject
         var items = _store.Load();
         Logger.Info("从存储加载了 {0} 个项目", items.Count);
         foreach (var item in items)
-        {
-            Logger.Info("  项目: {0} path={1} iconOverride={2}", item.Name, item.Path, item.IconOverride ?? "(null)");
             Items.Add(CreateViewModel(item));
-        }
 
-        // 加载完成后刷新全部运行状态
+        // 加载完成后刷新全部运行状态（同一套匹配规则，UWP 项也能亮）
         _windowMonitor.Refresh();
+        var running = _windowMonitor.RunningProcesses;
         foreach (var vm in Items)
         {
-            vm.IsRunning = _windowMonitor.IsProcessRunning(vm.Model.Path);
+            vm.IsRunning = running.Any(exe => Matches(vm.Model, exe));
             vm.Model.IsRunning = vm.IsRunning;
         }
     }
@@ -78,16 +76,56 @@ public partial class MainViewModel : ObservableObject
         {
             foreach (var vm in Items)
             {
-                var itemExe = Path.GetFileNameWithoutExtension(vm.Model.Path);
-                if (string.Equals(itemExe, exeName, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(vm.Model.StoreAppName, exeName, StringComparison.OrdinalIgnoreCase))
-                {
-                    vm.IsRunning = isRunning;
-                    vm.Model.IsRunning = isRunning;
-                    break;
-                }
+                if (!Matches(vm.Model, exeName))
+                    continue;
+
+                vm.IsRunning = isRunning;
+                vm.Model.IsRunning = isRunning;
+                return;
             }
+
+            Logger.Warn(
+                "运行状态上报未匹配到 Dock 项：exeName={0}，当前项={1}",
+                exeName,
+                string.Join(", ", Items.Select(i => $"{i.Model.Name}[path={i.Model.Path};store={i.Model.StoreAppName}]")));
         }, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// 判断 WindowMonitor 上报的进程名是否属于该 Dock 项。
+    /// 除路径 exe 名与 StoreAppName 全等外，还处理 PFN 形式的商店应用
+    /// （Microsoft.WindowsCalculator_8wekyb3d8bbwe → Microsoft.WindowsCalculator → WindowsCalculator）。
+    /// </summary>
+    private static bool Matches(DockItem item, string exeName)
+    {
+        if (string.IsNullOrWhiteSpace(exeName))
+            return false;
+
+        var itemExe = Path.GetFileNameWithoutExtension(item.Path);
+        if (!string.IsNullOrWhiteSpace(itemExe)
+            && string.Equals(itemExe, exeName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var store = item.StoreAppName;
+        if (string.IsNullOrWhiteSpace(store))
+            return false;
+
+        if (string.Equals(store, exeName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // PFN 格式：去掉末尾的 _发布者哈希 段
+        var underscore = store.LastIndexOf('_');
+        if (underscore <= 0)
+            return false;
+
+        var prefix = store[..underscore];
+        if (string.Equals(prefix, exeName, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // 再退一步：与包名最后一段比较（Microsoft.WindowsCalculator → WindowsCalculator）
+        var lastSegment = prefix[(prefix.LastIndexOf('.') + 1)..];
+        return lastSegment.Length > 0
+            && string.Equals(lastSegment, exeName, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>通过拖入的路径新增项目（.lnk / .exe）。</summary>
@@ -110,7 +148,6 @@ public partial class MainViewModel : ObservableObject
 
     private DockItemViewModel CreateViewModel(DockItem item)
     {
-        Logger.Info("创建 ViewModel: {0}", item.Name);
         var vm = new DockItemViewModel(item, IconService.GetPlaceholderIcon(), Launch, Remove);
         _ = LoadIconAsync(vm);
         return vm;
@@ -130,9 +167,7 @@ public partial class MainViewModel : ObservableObject
             else
             {
                 var iconPath = string.IsNullOrWhiteSpace(item.IconPath) ? item.Path : item.IconPath!;
-                Logger.Info("  提取图标: {0} from {1}", item.Name, iconPath);
                 icon = await Task.Run(() => _iconService.GetIcon(iconPath));
-                Logger.Info("  图标结果: {0} -> {1}", item.Name, icon is null ? "NULL" : $"ok ({icon.Width}x{icon.Height})");
             }
         }
         catch (Exception ex)
@@ -149,7 +184,6 @@ public partial class MainViewModel : ObservableObject
             return;
 
         await dispatcher.InvokeAsync(() => vm.Icon = icon);
-        Logger.Info("  图标已设置到 UI: {0}", item.Name);
     }
 
     /// <summary>加载内置 pack URI 图标资源并冻结。</summary>
@@ -170,14 +204,21 @@ public partial class MainViewModel : ObservableObject
         {
             ProcessLauncher.Launch(vm.Model);
 
-            // 启动后刷新运行状态（新进程可能刚创建，窗口尚未显示）
-            // 短暂延迟等窗口出现
+            // 启动后补一次运行状态（新进程刚创建时窗口可能还没显示完）。
+            // 只做点亮，不做熄灭：熄灭统一交给 WindowMonitor 的销毁事件，
+            // 否则 UWP 项（Path 为空）会被这里误判成未运行。
             _ = Task.Delay(500).ContinueWith(_ =>
             {
                 Application.Current?.Dispatcher.BeginInvoke(() =>
                 {
-                    vm.IsRunning = _windowMonitor.IsProcessRunning(vm.Model.Path);
-                    vm.Model.IsRunning = vm.IsRunning;
+                    if (vm.IsRunning)
+                        return;
+
+                    if (_windowMonitor.RunningProcesses.Any(exe => Matches(vm.Model, exe)))
+                    {
+                        vm.IsRunning = true;
+                        vm.Model.IsRunning = true;
+                    }
                 });
             });
         }

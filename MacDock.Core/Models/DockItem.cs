@@ -32,6 +32,7 @@ public sealed class DockItem
     /// <summary>是否为内置默认项。</summary>
     public bool IsBuiltIn { get; set; }
 
-    /// <summary>是否有可见顶层窗口在运行（由 WindowMonitor 更新）。</summary>
+    /// <summary>是否有可见顶层窗口在运行（由 WindowMonitor 更新，运行态不持久化）。</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool IsRunning { get; set; }
 }

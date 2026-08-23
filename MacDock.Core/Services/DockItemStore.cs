@@ -1,5 +1,6 @@
 using System.Text.Json;
 using MacDock.Core.Models;
+using NLog;
 
 namespace MacDock.Core.Services;
 
@@ -8,6 +9,8 @@ namespace MacDock.Core.Services;
 /// </summary>
 public sealed class DockItemStore
 {
+    private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -39,13 +42,68 @@ public sealed class DockItemStore
         {
             var json = File.ReadAllText(_filePath);
             var items = JsonSerializer.Deserialize<List<DockItem>>(json, JsonOptions);
-            return items ?? DefaultItems.ToList();
+            if (items is null)
+                return DefaultItems.ToList();
+
+            return Heal(items);
         }
         catch
         {
             return DefaultItems.ToList();
         }
     }
+
+    /// <summary>
+    /// 配置自愈：修掉旧版本写入的坏死条目（死路径且既无 StoreAppName 也无 IconOverride，
+    /// 表现为图标隐形）。按 Name 匹配默认项则原位替换，匹配不到则丢弃；
+    /// 用户条目与正常条目一律不动。仅在内存中处理，不回写文件。
+    /// </summary>
+    private static List<DockItem> Heal(List<DockItem> items)
+    {
+        var healed = new List<DockItem>(items.Count);
+
+        foreach (var item in items)
+        {
+            if (!IsDead(item))
+            {
+                healed.Add(item);
+                continue;
+            }
+
+            var replacement = DefaultItems.FirstOrDefault(
+                d => string.Equals(d.Name, item.Name, StringComparison.OrdinalIgnoreCase));
+
+            if (replacement is not null)
+            {
+                healed.Add(Clone(replacement));
+                Logger.Info("配置自愈：坏死条目「{0}」已替换为默认项", item.Name);
+            }
+            else
+            {
+                Logger.Info("配置自愈：坏死条目「{0}」无匹配默认项，已丢弃", item.Name);
+            }
+        }
+
+        return healed.Count > 0 ? healed : DefaultItems.Select(Clone).ToList();
+    }
+
+    /// <summary>坏死判定：路径不可用，且无商店应用名、无内置图标兜底。</summary>
+    private static bool IsDead(DockItem item)
+        => (string.IsNullOrWhiteSpace(item.Path) || !File.Exists(item.Path))
+           && string.IsNullOrWhiteSpace(item.StoreAppName)
+           && string.IsNullOrWhiteSpace(item.IconOverride);
+
+    /// <summary>复制默认项，避免调用方修改静态 DefaultItems 实例。</summary>
+    private static DockItem Clone(DockItem source) => new()
+    {
+        Name = source.Name,
+        Path = source.Path,
+        IconPath = source.IconPath,
+        IconOverride = source.IconOverride,
+        StoreAppName = source.StoreAppName,
+        Arguments = source.Arguments,
+        IsBuiltIn = source.IsBuiltIn,
+    };
 
     /// <summary>保存 Dock 项目到磁盘。</summary>
     public void Save(IEnumerable<DockItem> items)
