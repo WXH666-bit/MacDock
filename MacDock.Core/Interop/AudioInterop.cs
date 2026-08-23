@@ -17,6 +17,10 @@ internal static class AudioInterop
 
     /// <summary>S_OK。</summary>
     public const int S_OK = 0;
+
+    /// <summary>CoTaskMemFree：释放 COM 任务分配器分配的内存（如 GetId 返回的 LPWSTR 设备 ID）。</summary>
+    [DllImport("ole32.dll")]
+    public static extern void CoTaskMemFree(IntPtr ptr);
 }
 
 /// <summary>
@@ -62,6 +66,22 @@ internal interface IMMDevice
     [PreserveSig]
     int Activate(ref Guid iid, int clsCtx, IntPtr activationParams,
         [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+
+    /// <summary>
+    /// 打开设备属性存储。本实现不调用，仅作 vtable 槽位占位——IMMDevice 的真实 vtable 顺序为
+    /// IUnknown(槽0-2) → Activate(槽3) → OpenPropertyStore(槽4) → GetId(槽5) → GetState(槽6)。
+    /// 若跳过此占位直接声明 GetId，会因槽位错位而调到错误方法（P2-2 命门）。
+    /// </summary>
+    [PreserveSig]
+    int OpenPropertyStore(int stgmAccess, [MarshalAs(UnmanagedType.IUnknown)] out object properties);
+
+    /// <summary>取设备稳定的唯一 ID（LPWSTR，须用 CoTaskMemFree 释放）。用于判断默认设备是否切换。</summary>
+    [PreserveSig]
+    int GetId(out IntPtr ppstrId);
+
+    /// <summary>取设备状态（未用，槽位占位）。</summary>
+    [PreserveSig]
+    int GetState(out int state);
 }
 
 /// <summary>
@@ -145,7 +165,8 @@ internal interface IAudioEndpointVolumeCallback
 
 /// <summary>
 /// PAUDIO_VOLUME_NOTIFICATION_DATA 的结构（AudioVolumeNotificationData）前导字段。
-/// 后续为 nChannels 个声道音量，我们只关心 bMuted / fMasterVolume，故不声明声道数组。
+/// 后续为 nChannels 个声道音量。实现并不解析该结构——音量/静音具体值由通知后的读值刷新取得，
+/// 保留此类型仅作数据布局的文档价值（说明回调内容：GUID/静音/主音量/声道数）。
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct AudioVolumeNotificationData

@@ -74,18 +74,25 @@ internal static class TrayInterop
     public static extern bool ReadProcessMemory(
         IntPtr hProcess, IntPtr lpBaseAddress, IntPtr lpBuffer, UIntPtr nSize, out UIntPtr lpNumberOfBytesRead);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool WriteProcessMemory(
-        IntPtr hProcess, IntPtr lpBaseAddress, IntPtr lpBuffer, UIntPtr nSize, out UIntPtr lpNumberOfBytesWritten);
-
     [DllImport("kernel32.dll")]
     public static extern bool CloseHandle(IntPtr hObject);
 
     // ---- 窗口消息发送 ----
-    /// <summary>SendMessageW：同步发送窗口消息（跨进程时由系统做缓冲区封送）。</summary>
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    public static extern IntPtr SendMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+    /// <summary>
+    /// SMTO_ABORTIFHUNG：若目标线程未在泵消息（explorer 假死）则立即中止等待，配合超时防卡调用线程。
+    /// </summary>
+    public const uint SMTO_ABORTIFHUNG = 0x0002;
+
+    /// <summary>
+    /// SendMessageTimeoutW：带超时的同步发送窗口消息。目标窗口无响应（explorer 假死）时按
+    /// fuFlags 中止等待并返回 false，避免调用方线程（UI 500ms 探测）被卡死。
+    /// 返回值是 bool（失败可由 GetLastError 扩展），消息结果写入 lpdwResult。
+    /// </summary>
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SendMessageTimeoutW(
+        IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam,
+        uint fuFlags, uint timeout, out IntPtr result);
 
     /// <summary>
     /// PostMessageW：异步投递窗口消息（不进队列等待）。用于向托盘目标窗口转发点击。

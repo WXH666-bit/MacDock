@@ -52,12 +52,24 @@ public sealed class AudioServiceTests
 
         public bool Disposed { get; private set; }
 
+        public string? BoundDeviceId { get; set; }
+
+        public bool EnsureResult { get; set; } = true;
+
+        public int EnsureCalls { get; private set; }
+
         public event Action? VolumeChanged;
 
         public bool TryRegister()
         {
             RegisterCalled = true;
             return RegisterResult;
+        }
+
+        public bool EnsureBoundToCurrentDefault()
+        {
+            EnsureCalls++;
+            return EnsureResult;
         }
 
         public void Raise() => VolumeChanged?.Invoke();
@@ -207,5 +219,32 @@ public sealed class AudioServiceTests
         Assert.True(factory.Notifier.Disposed);
         // Dispose 后不再触发
         factory.Notifier.Raise();
+    }
+
+    // 设备切换（设备 ID 变化 → 重绑）与未注册状态的检测逻辑位于 Win32AudioVolumeNotifier，
+    // 需真实 Core Audio COM 才能驱动，单元测试无法替代——以下两例验证 AudioService 的透传契约，
+    // 实际重绑结果由真机验收（拔插耳机/切默认输出后回调恢复）确认。
+
+    [Fact]
+    public void EnsureVolumeNotifierHealthy_DelegatesToNotifier()
+    {
+        var factory = new FakeFactory();
+        using var service = new AudioService(factory);
+
+        service.EnsureVolumeNotifierHealthy();
+
+        Assert.Equal(1, factory.Notifier.EnsureCalls);
+    }
+
+    [Fact]
+    public void EnsureVolumeNotifierHealthy_AfterDispose_DoesNotTouchNotifier()
+    {
+        var factory = new FakeFactory();
+        var service = new AudioService(factory);
+        service.Dispose();
+
+        service.EnsureVolumeNotifierHealthy();
+
+        Assert.Equal(0, factory.Notifier.EnsureCalls);
     }
 }

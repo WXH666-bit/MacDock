@@ -109,6 +109,25 @@ public sealed class AudioService : IDisposable
         return endpoint?.SetMute(mute) ?? false;
     }
 
+    /// <summary>
+    /// 确保音量通知源绑定到当前默认播放端点（拔插耳机/切换默认输出后，通知源可能仍挂旧设备）。
+    /// 由实现内部判定设备是否变化并重绑；任何失败都不抛异常（内部静默），供调用方周期触发自愈。
+    /// </summary>
+    public void EnsureVolumeNotifierHealthy()
+    {
+        if (_disposed)
+            return;
+
+        try
+        {
+            _notifier.EnsureBoundToCurrentDefault();
+        }
+        catch (Exception exception)
+        {
+            Logger.Debug(exception, "音量通知源健康检查失败");
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)

@@ -10,7 +10,7 @@ namespace MacDock.UI.ViewModels;
 /// <summary>
 /// 顶部菜单栏视图模型：左侧前台应用名、右侧时间 + 音量/亮度控制区。
 /// 前台应用数据源复用 MainViewModel 持有的 WindowMonitor（不重复挂钩）；
-/// 音量走 Core Audio，亮度走 WMI，二者均由 500ms 轮询刷新状态。
+/// 音量走 Core Audio（事件回调驱动，5s 低频自愈重绑），亮度走 WMI（500ms 异步轮询）。
 /// </summary>
 public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
 {
@@ -110,10 +110,12 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
         _controlsTimer.Tick += OnControlsTick;
         _controlsTimer.Start();
 
-        // 30 秒低频兜底自愈：设备拔插/端点切换等不触发音量回调时，保证图标最终正确
+        // 5 秒低频兜底自愈。正统解法是 RegisterEndpointNotificationCallback(IMMNotificationClient)
+        // 事件驱动检测设备切换，但需手写完整 COM 回调接口与 CCW 生命周期；修复轮用 5s 轮询比对
+        // 当前默认端点 ID，不一致即重绑，事件驱动留作后续优化。
         _volumeSelfHealTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
-            Interval = TimeSpan.FromSeconds(30),
+            Interval = TimeSpan.FromSeconds(5),
         };
         _volumeSelfHealTimer.Tick += OnVolumeSelfHealTick;
         _volumeSelfHealTimer.Start();
@@ -274,9 +276,12 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
             DispatcherPriority.Background);
     }
 
-    /// <summary>30 秒低频兜底：设备切换等不触发回调时维持图标正确。</summary>
+    /// <summary>5 秒低频兜底：先确保通知源仍绑定当前默认设备，再读值刷新维持图标正确。</summary>
     private void OnVolumeSelfHealTick(object? sender, EventArgs e)
     {
+        // 设备切换/未注册时内部重绑；失败不抛（内部静默）。Rebind 后新端点音量值可能不同，
+        // 随后的读值刷新正好把新状态带出来。
+        _audio.EnsureVolumeNotifierHealthy();
         RefreshAudioState();
         RefreshVolume();
         ControlsRefreshed?.Invoke();

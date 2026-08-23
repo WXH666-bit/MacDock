@@ -157,6 +157,9 @@ internal sealed class Win32TrayToolbarScan : ITrayToolbarScan
     /// <summary>TBBUTTON.dwData 指向的托盘项数据前 24 字节。</summary>
     private const int TrayItemDataSize = 24;
 
+    /// <summary>SendMessageTimeoutW 超时（毫秒）：explorer 假死时放弃等待，避免卡住调用线程。</summary>
+    private const uint MessageTimeoutMs = 200;
+
     public IReadOnlyList<RawTrayButton> ScanChain(bool overflow)
     {
         var hwndToolbar = FindToolbar(overflow);
@@ -201,13 +204,29 @@ internal sealed class Win32TrayToolbarScan : ITrayToolbarScan
         if (hwndToolbar == IntPtr.Zero)
             return 0;
 
-        var count = (int)TrayInterop.SendMessageW(hwndToolbar, TrayInterop.TB_BUTTONCOUNT, IntPtr.Zero, IntPtr.Zero);
+        // 带超时：explorer 假死时不卡调用方（500ms 探测跑在 UI 线程），超时/失败视作空链
+        if (!TrayInterop.SendMessageTimeoutW(
+            hwndToolbar, TrayInterop.TB_BUTTONCOUNT, IntPtr.Zero, IntPtr.Zero,
+            TrayInterop.SMTO_ABORTIFHUNG, MessageTimeoutMs, out var countResult))
+        {
+            return 0;
+        }
+
+        var count = (int)countResult;
         return count > 0 ? (uint)count : 0;
     }
 
     private static List<RawTrayButton> ScanToolbar(IntPtr hProcess, IntPtr hwndToolbar, bool overflow)
     {
-        var count = (int)TrayInterop.SendMessageW(hwndToolbar, TrayInterop.TB_BUTTONCOUNT, IntPtr.Zero, IntPtr.Zero);
+        // 带超时：explorer 假死时放弃读取，返回空集合（降级路径）
+        if (!TrayInterop.SendMessageTimeoutW(
+            hwndToolbar, TrayInterop.TB_BUTTONCOUNT, IntPtr.Zero, IntPtr.Zero,
+            TrayInterop.SMTO_ABORTIFHUNG, MessageTimeoutMs, out var countResult))
+        {
+            return new List<RawTrayButton>();
+        }
+
+        var count = (int)countResult;
         if (count <= 0)
             return new List<RawTrayButton>();
 
@@ -247,7 +266,13 @@ internal sealed class Win32TrayToolbarScan : ITrayToolbarScan
 
         try
         {
-            TrayInterop.SendMessageW(hwndToolbar, TrayInterop.TB_GETBUTTON, (IntPtr)index, remote);
+            // 带超时发送；失败/超时该按钮读不到，跳过（沿用降级路径：读不到即跳过该按钮）
+            if (!TrayInterop.SendMessageTimeoutW(
+                hwndToolbar, TrayInterop.TB_GETBUTTON, (IntPtr)index, remote,
+                TrayInterop.SMTO_ABORTIFHUNG, MessageTimeoutMs, out _))
+            {
+                return null;
+            }
 
             var local = Marshal.AllocHGlobal(size);
             try
@@ -291,8 +316,15 @@ internal sealed class Win32TrayToolbarScan : ITrayToolbarScan
     /// <summary>TB_GETBUTTONTEXTW 读按钮 tooltip（跨进程缓冲），失败返回 null。</summary>
     private static string? ReadTooltip(IntPtr hProcess, IntPtr hwndToolbar, int index)
     {
-        // 先问长度（lParam=0），返回按钮文本字符数；不可靠时兜底 128 字符
-        int len = (int)TrayInterop.SendMessageW(hwndToolbar, TrayInterop.TB_GETBUTTONTEXTW, (IntPtr)index, IntPtr.Zero);
+        // 先问长度（lParam=0），返回按钮文本字符数；失败/超时返回 null 视作无 tooltip
+        if (!TrayInterop.SendMessageTimeoutW(
+            hwndToolbar, TrayInterop.TB_GETBUTTONTEXTW, (IntPtr)index, IntPtr.Zero,
+            TrayInterop.SMTO_ABORTIFHUNG, MessageTimeoutMs, out var lenResult))
+        {
+            return null;
+        }
+
+        int len = (int)lenResult;
         if (len <= 0)
             len = 128;
 
@@ -304,7 +336,13 @@ internal sealed class Win32TrayToolbarScan : ITrayToolbarScan
 
         try
         {
-            TrayInterop.SendMessageW(hwndToolbar, TrayInterop.TB_GETBUTTONTEXTW, (IntPtr)index, remote);
+            // 带超时读入缓冲；失败/超时返回 null（无 tooltip，降级为不显示提示）
+            if (!TrayInterop.SendMessageTimeoutW(
+                hwndToolbar, TrayInterop.TB_GETBUTTONTEXTW, (IntPtr)index, remote,
+                TrayInterop.SMTO_ABORTIFHUNG, MessageTimeoutMs, out _))
+            {
+                return null;
+            }
 
             var local = Marshal.AllocHGlobal(bytes);
             try

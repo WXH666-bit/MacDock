@@ -42,11 +42,14 @@ public sealed class TrayAreaViewModelTests
         return bmp;
     }
 
-    private static TrayIconInfo Info(IntPtr hwnd, uint uid, bool overflow = false)
-        => new(TrayIconInfo.BuildKey(hwnd, uid), (IntPtr)0x1234, "tip", overflow, hwnd, 0x00C1, uid);
+    private static TrayIconInfo Info(IntPtr hwnd, uint uid, bool overflow = false, IntPtr? hIcon = null, string? tooltip = "tip")
+    {
+        var icon = hIcon ?? new IntPtr(0x1234);
+        return new(TrayIconInfo.BuildKey(hwnd, uid), icon, tooltip, overflow, hwnd, 0x00C1, uid);
+    }
 
-    private static TrayIconItem Item(IntPtr hwnd, uint uid, bool overflow = false)
-        => new(FakeImage, Info(hwnd, uid, overflow));
+    private static TrayIconItem Item(IntPtr hwnd, uint uid, bool overflow = false, IntPtr? hIcon = null, string? tooltip = "tip")
+        => new(FakeImage, Info(hwnd, uid, overflow, hIcon, tooltip));
 
     [Fact]
     public void Start_Disabled_ClearsCollectionsAndChevron()
@@ -93,6 +96,44 @@ public sealed class TrayAreaViewModelTests
         TrayAreaViewModel.ApplyDiff(current, new List<TrayIconItem>());
 
         Assert.Empty(current);
+    }
+
+    [Fact]
+    public void ApplyDiff_SameKeyDifferentIcon_ReplacesItem()
+    {
+        var current = new ObservableCollection<TrayIconItem> { Item((IntPtr)0x10, 1) };
+        // 同 Key（hWnd=0x10, uID=1）HIcon 不同（微信换红点图标）→ 该项应整项替换，保持位置
+        var fresh = new List<TrayIconItem> { Item((IntPtr)0x10, 1, hIcon: new IntPtr(0x55AA)) };
+
+        TrayAreaViewModel.ApplyDiff(current, fresh);
+
+        Assert.Single(current);
+        Assert.Equal(new IntPtr(0x55AA), current[0].Info.HIcon);
+    }
+
+    [Fact]
+    public void ApplyDiff_SameKeyDifferentTooltip_ReplacesItem()
+    {
+        var current = new ObservableCollection<TrayIconItem> { Item((IntPtr)0x10, 1) };
+        var fresh = new List<TrayIconItem> { Item((IntPtr)0x10, 1, tooltip: "3 条新消息") };
+
+        TrayAreaViewModel.ApplyDiff(current, fresh);
+
+        Assert.Single(current);
+        Assert.Equal("3 条新消息", current[0].Info.Tooltip);
+    }
+
+    [Fact]
+    public void ApplyDiff_SameKeySameIconAndTooltip_KeepsOriginalInstance()
+    {
+        var original = Item((IntPtr)0x10, 1);
+        var current = new ObservableCollection<TrayIconItem> { original };
+        var fresh = new List<TrayIconItem> { Item((IntPtr)0x10, 1) };
+
+        TrayAreaViewModel.ApplyDiff(current, fresh);
+
+        // 图标与提示都没变 → 保留原实例（引用相同，不触发放置/刷新）
+        Assert.Same(original, current[0]);
     }
 
     [Fact]
