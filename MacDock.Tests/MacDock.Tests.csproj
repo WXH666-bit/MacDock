@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MacDock.Core\MacDock.Core.csproj" />
+    <ProjectReference Include="..\MacDock.UI\MacDock.UI.csproj" />
   </ItemGroup>
 
   <ItemGroup>

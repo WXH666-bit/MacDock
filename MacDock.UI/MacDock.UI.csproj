@@ -22,6 +22,8 @@
   <ItemGroup>
     <ProjectReference Include="..\MacDock.Core\MacDock.Core.csproj" />
     <ProjectReference Include="..\MacDock.Animations\MacDock.Animations.csproj" />
+    <ProjectReference Include="..\MacDock.Watchdog\MacDock.Watchdog.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
@@ -38,5 +40,30 @@
   <ItemGroup>
     <Using Include="System.IO" />
   </ItemGroup>
+
+  <Target Name="CopyWatchdogOutput" AfterTargets="Build">
+    <PropertyGroup>
+      <WatchdogOutputDirectory>$(MSBuildProjectDirectory)\..\MacDock.Watchdog\bin\$(Configuration)\$(TargetFramework)\</WatchdogOutputDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <WatchdogRequiredOutput Include="$(WatchdogOutputDirectory)MacDock.Watchdog.exe" />
+      <WatchdogRequiredOutput Include="$(WatchdogOutputDirectory)MacDock.Watchdog.dll" />
+      <WatchdogRequiredOutput Include="$(WatchdogOutputDirectory)MacDock.Watchdog.deps.json" />
+      <WatchdogRequiredOutput Include="$(WatchdogOutputDirectory)MacDock.Watchdog.runtimeconfig.json" />
+      <WatchdogOptionalOutput Include="$(WatchdogOutputDirectory)MacDock.Watchdog.pdb"
+                              Condition="Exists('$(WatchdogOutputDirectory)MacDock.Watchdog.pdb')" />
+    </ItemGroup>
+    <Error Condition="!Exists('$(WatchdogOutputDirectory)MacDock.Watchdog.exe')"
+           Text="MacDock.Watchdog.exe was not built." />
+    <Error Condition="!Exists('$(WatchdogOutputDirectory)MacDock.Watchdog.dll')"
+           Text="MacDock.Watchdog.dll was not built." />
+    <Error Condition="!Exists('$(WatchdogOutputDirectory)MacDock.Watchdog.deps.json')"
+           Text="MacDock.Watchdog.deps.json was not built." />
+    <Error Condition="!Exists('$(WatchdogOutputDirectory)MacDock.Watchdog.runtimeconfig.json')"
+           Text="MacDock.Watchdog.runtimeconfig.json was not built." />
+    <Copy SourceFiles="@(WatchdogRequiredOutput);@(WatchdogOptionalOutput)"
+          DestinationFolder="$(OutDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

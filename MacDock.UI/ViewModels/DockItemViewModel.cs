@@ -30,6 +30,10 @@ public partial class DockItemViewModel : ObservableObject
     [ObservableProperty]
     private BitmapSource? _icon;
 
+    /// <summary>是否有可见顶层窗口在运行（运行指示小圆点）。</summary>
+    [ObservableProperty]
+    private bool _isRunning;
+
     /// <summary>启动命令。</summary>
     public ICommand LaunchCommand { get; }
 

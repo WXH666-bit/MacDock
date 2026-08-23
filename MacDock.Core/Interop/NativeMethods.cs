@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace MacDock.Core.Interop;
 
@@ -22,10 +23,12 @@ internal static class NativeMethods
     public const uint SWP_NOACTIVATE = 0x0010;
 
     [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
     // ---- 光标 ----
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetCursorPos(out POINT lpPoint);
 
     // ---- DWM 属性（Win11） ----
@@ -54,15 +57,18 @@ internal static class NativeMethods
     public const int SW_RESTORE = 9;
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool BringWindowToTop(IntPtr hWnd);
 
     [DllImport("user32.dll")]
@@ -70,7 +76,11 @@ internal static class NativeMethods
 
     /// <summary>挂靠/脱离两个线程的输入队列，用于绕过前台锁定策略。</summary>
     [DllImport("user32.dll")]
-    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool AttachThreadInput(
+        uint idAttach,
+        uint idAttachTo,
+        [MarshalAs(UnmanagedType.Bool)] bool fAttach);
 
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
@@ -95,6 +105,7 @@ internal static class NativeMethods
         => IntPtr.Size == 8 ? SetWindowLongPtr64(hWnd, nIndex, dwNewLong) : SetWindowLong32(hWnd, nIndex, dwNewLong);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool DestroyIcon(IntPtr hIcon);
 
     // ---- Shell 图标 ----
@@ -112,6 +123,99 @@ internal static class NativeMethods
 
     /// <summary>IImageList COM 接口 IID。</summary>
     public static readonly Guid IID_IImageList = new Guid("46EB5926-582E-4017-9FDF-E8998DAA0950");
+
+    // ---- 精确主任务栏窗口 ----
+    /// <summary>Shell_TrayWnd：Windows 主任务栏窗口类名。</summary>
+    public const string SHELL_TRAY_WND = "Shell_TrayWnd";
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string lpClassName, string? lpWindowName);
+
+    // ---- 窗口枚举 ----
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetParent(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+    public const uint MONITOR_DEFAULTTONULL = 0x00000000;
+    public const uint MONITOR_DEFAULTTOPRIMARY = 0x00000001;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    // ---- WinEventHook（窗口事件监听） ----
+    /// <summary>WinEventHook 回调委托。</summary>
+    public delegate void WinEventDelegate(
+        IntPtr hWinEventHook, uint eventType, IntPtr hWnd,
+        int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+
+    /// <summary>挂钩前台窗口变化。</summary>
+    public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    /// <summary>挂钩窗口最小化。</summary>
+    public const uint EVENT_SYSTEM_MINIMIZEEND = 0x0017;
+    /// <summary>挂钩窗口还原/显示。</summary>
+    public const uint EVENT_SYSTEM_MINIMIZESTART = 0x0016;
+    /// <summary>挂钩对象显示。</summary>
+    public const uint EVENT_OBJECT_SHOW = 0x8002;
+    /// <summary>挂钩对象销毁。</summary>
+    public const uint EVENT_OBJECT_DESTROY = 0x8001;
+
+    /// <summary>钩子来源范围：当前桌面所有进程。</summary>
+    public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetWinEventHook(
+        uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
+        WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    // ---- SW_ 常量 ----
+    public const int SW_HIDE = 0;
+    public const int SW_SHOW = 5;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WINDOWPLACEMENT
+    {
+        public uint length;
+        public uint flags;
+        public int showCmd;
+        public POINT ptMinPosition;
+        public POINT ptMaxPosition;
+        public RECT rcNormalPosition;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct SHFILEINFO

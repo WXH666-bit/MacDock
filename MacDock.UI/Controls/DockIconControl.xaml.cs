@@ -1,11 +1,16 @@
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using MacDock.Animations;
 
 namespace MacDock.UI.Controls;
 
 /// <summary>
-/// Dock 单个图标控件：squircle 底板 + 图标，左键启动（带弹跳反馈）、右键移除。
+/// Dock 单个图标控件：图标 + macOS 风格运行指示小圆点，左键启动（带弹跳反馈）、右键移除。
 /// </summary>
 public partial class DockIconControl : UserControl
 {

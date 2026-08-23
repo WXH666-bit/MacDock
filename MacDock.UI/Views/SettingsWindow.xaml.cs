@@ -9,10 +9,11 @@ namespace MacDock.UI.Views;
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    public SettingsWindow()
+    public SettingsWindow(SettingsViewModel viewModel)
     {
+        ArgumentNullException.ThrowIfNull(viewModel);
         InitializeComponent();
-        DataContext = new SettingsViewModel();
+        DataContext = viewModel;
 
         Opacity = 0;
         Loaded += (_, _) =>

@@ -1,7 +1,47 @@
 <UserControl x:Class="MacDock.UI.Controls.DockIconControl"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <!-- 名称提示由 DockWindow 的 macOS 风格气泡承担，不再使用系统 ToolTip -->
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MacDock.UI.Controls">
+    <UserControl.Resources>
+        <!-- 运行指示小圆点：出现时淡入 + 从中心弹出，消失时淡出 + 回缩 -->
+        <Style x:Key="RunningDotStyle" TargetType="Ellipse">
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="RenderTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="0.3" ScaleY="0.3"/>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 To="1" Duration="0:0:0.12"/>
+                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX"
+                                                 To="1" Duration="0:0:0.18"/>
+                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY"
+                                                 To="1" Duration="0:0:0.18"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                 To="0" Duration="0:0:0.1"/>
+                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleX"
+                                                 To="0.3" Duration="0:0:0.1"/>
+                                <DoubleAnimation Storyboard.TargetProperty="RenderTransform.ScaleY"
+                                                 To="0.3" Duration="0:0:0.1"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
     <Grid Background="Transparent">
         <Grid.InputBindings>
             <MouseBinding MouseAction="LeftClick" Command="{Binding LaunchCommand}"/>
@@ -12,11 +52,7 @@
             </ContextMenu>
         </Grid.ContextMenu>
 
-        <!-- 图标容器：无底板（macOS 图标自带造型，避免双层底观感） -->
-        <Border x:Name="SquircleBorder"
-                Background="Transparent">
-
-            <!-- 内层 Image 占容器约 88%，接近 macOS 图标在槽位中的占比 -->
+        <Border x:Name="SquircleBorder" Background="Transparent">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="6*"/>
@@ -33,6 +69,15 @@
                        Stretch="Uniform"
                        SnapsToDevicePixels="True"
                        RenderOptions.BitmapScalingMode="HighQuality"/>
+
+                <!-- macOS 风格运行指示小圆点 -->
+                <Ellipse Grid.Row="2" Grid.ColumnSpan="3"
+                         Style="{StaticResource RunningDotStyle}"
+                         Width="7" Height="7"
+                         Fill="#FFFFFFFF"
+                         HorizontalAlignment="Center"
+                         VerticalAlignment="Center"
+                         Margin="0,2,0,0"/>
             </Grid>
         </Border>
     </Grid>

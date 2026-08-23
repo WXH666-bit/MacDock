@@ -13,6 +13,15 @@ public static class AppPaths
     /// <summary>Dock 项目持久化文件路径。</summary>
     public static string DockItemsFile => Path.Combine(AppDataDirectory, "dock-items.json");
 
+    /// <summary>应用设置持久化文件路径。</summary>
+    public static string SettingsFile => Path.Combine(AppDataDirectory, "settings.json");
+
+    /// <summary>任务栏租约 journal 文件路径。</summary>
+    public static string TaskbarLeaseFile => Path.Combine(AppDataDirectory, "taskbar-lease.json");
+
+    /// <summary>任务栏租约独占锁文件路径。</summary>
+    public static string TaskbarLeaseLockFile => Path.Combine(AppDataDirectory, "taskbar-lease.lock");
+
     /// <summary>确保数据目录存在并返回其路径。</summary>
     public static string EnsureDataDirectory()
     {

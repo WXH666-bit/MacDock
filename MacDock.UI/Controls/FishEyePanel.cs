@@ -72,12 +72,6 @@ public sealed class FishEyePanel : Panel
     /// <summary>第 i 个图标的静止中心 X（面板坐标系）。</summary>
     private double CenterX(int i) => EdgePadding + IconSize / 2.0 + i * Slot;
 
-    /// <summary>诊断用：首个图标静止中心 X（无子元素时为 NaN）。</summary>
-    public double DebugFirstCenterX => Children.Count == 0 ? double.NaN : CenterX(0);
-
-    /// <summary>诊断用：末个图标静止中心 X（无子元素时为 NaN）。</summary>
-    public double DebugLastCenterX => Children.Count == 0 ? double.NaN : CenterX(Children.Count - 1);
-
     private void StartAnimation()
     {
         if (_animating)

@@ -17,5 +17,8 @@
 AGENTS.md
 scripts/
 
+# Superpowers 计划/设计文档（按用户要求不上传）
+docs/superpowers/
+
 # 日志
 *.log

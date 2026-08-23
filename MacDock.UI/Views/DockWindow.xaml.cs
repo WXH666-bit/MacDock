@@ -4,6 +4,7 @@ using System.Windows.Interop;
 using System.Windows.Media.Animation;
 using H.NotifyIcon.Core;
 using MacDock.Core.Services;
+using MacDock.Core.Services.Taskbar;
 using MacDock.UI.Controls;
 using MacDock.UI.ViewModels;
 using NLog;
@@ -27,12 +28,27 @@ public partial class DockWindow : Window
     private static double BackdropHeight(double iconSize) => iconSize + 2 * IconBottomInset;
 
     private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
-    private readonly MainViewModel _viewModel = new();
+    private readonly MainViewModel _viewModel;
+    private readonly ShellMessageClassifier _shellMessages;
+    private readonly Func<SettingsViewModel> _settingsViewModelFactory;
     private readonly DockBackdropWindow _backdrop = new();
     private FishEyePanel? _panel;
+    private HwndSource? _messageSource;
+    private HwndSourceHook? _shellMessageHook;
 
-    public DockWindow()
+    public event EventHandler? ShellEnvironmentChanged;
+
+    public DockWindow(
+        MainViewModel viewModel,
+        ShellMessageClassifier shellMessages,
+        Func<SettingsViewModel> settingsViewModelFactory)
     {
+        _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        _shellMessages = shellMessages
+            ?? throw new ArgumentNullException(nameof(shellMessages));
+        _settingsViewModelFactory = settingsViewModelFactory
+            ?? throw new ArgumentNullException(nameof(settingsViewModelFactory));
+
         InitializeComponent();
         DataContext = _viewModel;
 
@@ -54,7 +70,32 @@ public partial class DockWindow : Window
         base.OnSourceInitialized(e);
 
         // 追加扩展样式：置顶、点击不抢焦点、不进 Alt+Tab
-        WindowStyleService.ApplyDockStyles(new WindowInteropHelper(this).Handle);
+        var handle = new WindowInteropHelper(this).Handle;
+        WindowStyleService.ApplyDockStyles(handle);
+
+        if (handle != IntPtr.Zero && _shellMessageHook is null)
+        {
+            _messageSource = HwndSource.FromHwnd(handle);
+            if (_messageSource is not null)
+            {
+                _shellMessageHook = OnShellMessage;
+                _messageSource.AddHook(_shellMessageHook);
+            }
+        }
+    }
+
+    private IntPtr OnShellMessage(
+        IntPtr hwnd,
+        int message,
+        IntPtr wParam,
+        IntPtr lParam,
+        ref bool handled)
+    {
+        var messageId = unchecked((uint)message);
+        if (_shellMessages.IsShellEnvironmentChange(messageId))
+            ShellEnvironmentChanged?.Invoke(this, EventArgs.Empty);
+
+        return IntPtr.Zero;
     }
 
     /// <summary>鱼眼面板加载完成：保存引用并挂接悬停事件（面板在 ItemsPanelTemplate 内，无法 x:Name）。</summary>
@@ -90,14 +131,6 @@ public partial class DockWindow : Window
         var self = new WindowInteropHelper(this).Handle;
         if (self != IntPtr.Zero && _backdrop.Handle != IntPtr.Zero)
             WindowStyleService.PlaceBelow(_backdrop.Handle, self);
-
-        // TODO(临时诊断)：核对图标层与玻璃条对齐、图标是否被裁剪。标签用 ASCII 便于脚本解析。
-        Logger.Info(
-            "LAYOUTDIAG win L={0:F1} T={1:F1} W={2:F1} H={3:F1} panel staticW={4:F1} c0={5:F1} cN={6:F1} icon={7:F1} slot={8:F1} bar L={9:F1} T={10:F1} W={11:F1} H={12:F1}",
-            Left, Top, ActualWidth, ActualHeight,
-            _panel.StaticContentWidth, _panel.DebugFirstCenterX, _panel.DebugLastCenterX,
-            _panel.IconSize, _panel.IconSize + _panel.Spacing,
-            bLeft, bTop, bw, bh);
     }
 
     // ---- macOS 风格名称气泡 ----
@@ -184,7 +217,7 @@ public partial class DockWindow : Window
     // ---- 托盘菜单 ----
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
-        var settings = new SettingsWindow { Owner = this };
+        var settings = new SettingsWindow(_settingsViewModelFactory()) { Owner = this };
         settings.Show();
         settings.Activate();
     }
@@ -197,8 +230,15 @@ public partial class DockWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        base.OnClosed(e);
+        if (_messageSource is not null && _shellMessageHook is not null)
+            _messageSource.RemoveHook(_shellMessageHook);
+
+        _shellMessageHook = null;
+        _messageSource = null;
+        _viewModel.LaunchFailed -= OnLaunchFailed;
+        _viewModel.Dispose();
         _backdrop.Close();
         TrayIcon.Dispose();
+        base.OnClosed(e);
     }
 }
