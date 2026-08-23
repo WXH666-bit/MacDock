@@ -103,7 +103,7 @@ public partial class App : Application
                 "MacDock.Watchdog.exe");
             var recoveryGuard = new TaskbarWatchdogClient(
                 watchdogPath,
-                AppPaths.AppDataDirectory,
+                AppPaths.AppDataRoot,
                 new WatchdogProcessLauncher());
 
             using var ownerProcess = Process.GetCurrentProcess();

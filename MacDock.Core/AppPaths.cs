@@ -10,6 +10,14 @@ public static class AppPaths
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "MacDock");
 
+    /// <summary>
+    /// 应用数据根目录（%AppData% 本身）。Watchdog 参数校验以此为基准拼
+    /// 「根\MacDock\taskbar-lease.json」，注意不是 <see cref="AppDataDirectory"/>——
+    /// 传深一层会导致期望路径多出一级 MacDock，租约永远无法获取。
+    /// </summary>
+    public static string AppDataRoot => Environment.GetFolderPath(
+        Environment.SpecialFolder.ApplicationData);
+
     /// <summary>Dock 项目持久化文件路径。</summary>
     public static string DockItemsFile => Path.Combine(AppDataDirectory, "dock-items.json");
 
