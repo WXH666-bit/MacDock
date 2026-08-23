@@ -1,4 +1,5 @@
 using System.Globalization;
+using MacDock.Core.Services;
 using MacDock.UI.ViewModels;
 using Xunit;
 
@@ -7,6 +8,19 @@ namespace MacDock.Tests;
 public class MenuBarViewModelTests
 {
     private static readonly DateTime Sample = new(2026, 8, 23, 16, 38, 5);
+
+    [Theory]
+    [InlineData("notepad", "", "记事本")]
+    [InlineData("notepad", "备份清单.txt", "记事本")]
+    [InlineData("unknownapp", "我的窗口标题", "我的窗口标题")]
+    [InlineData("unknownapp", "", "unknownapp")]
+    [InlineData("dwm", "", "MacDock")]
+    public void FormatAppName_Priority_FriendlyOverTitleOverProcess(
+        string processName, string title, string expected)
+    {
+        // 映射表命中时即使有标题也优先友好名；未映射回退标题；再退化进程名；内部进程回兜底名
+        Assert.Equal(expected, MenuBarViewModel.FormatAppName(processName, string.IsNullOrEmpty(title) ? null : title));
+    }
 
     [Fact]
     public void FormatClock_ChineseCulture_UsesWeekdayMonthDayTime()

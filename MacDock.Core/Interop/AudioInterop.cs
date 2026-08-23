@@ -1,0 +1,136 @@
+using System.Runtime.InteropServices;
+
+namespace MacDock.Core.Interop;
+
+/// <summary>
+/// Core Audio COM 互操作声明（手写，不加 NuGet 包）。
+/// 仅覆盖主音量控制链路：MMDeviceEnumerator → IMMDevice → IAudioEndpointVolume。
+/// 接口方法必须按真实 vtable 顺序声明，未用到的方法以占位声明保持槽位正确。
+/// </summary>
+internal static class AudioInterop
+{
+    /// <summary>eRender：渲染（播放）设备。</summary>
+    public const int ERender = 0;
+
+    /// <summary>eMultimedia：多媒体用途（默认音量策略）。</summary>
+    public const int EMultimedia = 1;
+
+    /// <summary>S_OK。</summary>
+    public const int S_OK = 0;
+}
+
+/// <summary>
+/// IMMDeviceEnumerator：音频设备枚举器（MMDevice API 入口）。
+/// https://learn.microsoft.com/windows/win32/api/mmdeviceapi/nn-mmdeviceapi-immdeviceenumerator
+/// </summary>
+[ComImport]
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IMMDeviceEnumerator
+{
+    /// <summary>枚举音频端点设备（未用，vtable 槽位占位）。</summary>
+    [PreserveSig]
+    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+
+    /// <summary>取默认音频端点设备。</summary>
+    [PreserveSig]
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+
+    /// <summary>按设备 ID 取设备（未用，槽位占位）。</summary>
+    [PreserveSig]
+    int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice device);
+
+    /// <summary>注册设备变化回调（未用，槽位占位）。</summary>
+    [PreserveSig]
+    int RegisterEndpointNotificationCallback(IntPtr client);
+
+    /// <summary>注销设备变化回调（未用，槽位占位）。</summary>
+    [PreserveSig]
+    int UnregisterEndpointNotificationCallback(IntPtr client);
+}
+
+/// <summary>
+/// IMMDevice：单个音频端点设备。
+/// https://learn.microsoft.com/windows/win32/api/mmdeviceapi/nn-mmdeviceapi-immdevice
+/// </summary>
+[ComImport]
+[Guid("D666063F-1587-4E43-81F1-B948E807363F")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IMMDevice
+{
+    /// <summary>激活设备上的功能接口（如 IAudioEndpointVolume）。</summary>
+    [PreserveSig]
+    int Activate(ref Guid iid, int clsCtx, IntPtr activationParams,
+        [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+}
+
+/// <summary>
+/// IAudioEndpointVolume：端点主音量控制（0.0-1.0 标量值 + 静音）。
+/// https://learn.microsoft.com/windows/win32/api/endpointvolume/nn-endpointvolume-iaudioendpointvolume
+/// </summary>
+[ComImport]
+[Guid("5CDF2C82-841E-4546-9722-0CF74078229A")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IAudioEndpointVolume
+{
+    /// <summary>注册音量变化回调（M2.3 再用，槽位占位）。</summary>
+    [PreserveSig]
+    int RegisterControlChangeNotify(IntPtr client);
+
+    /// <summary>注销音量变化回调（槽位占位）。</summary>
+    [PreserveSig]
+    int UnregisterControlChangeNotify(IntPtr client);
+
+    /// <summary>取声道数（槽位占位）。</summary>
+    [PreserveSig]
+    int GetChannelCount(out uint channelCount);
+
+    /// <summary>取主音量（0.0-1.0 标量）。</summary>
+    [PreserveSig]
+    int SetMasterVolumeLevel(float levelDb, ref Guid eventContext);
+
+    /// <summary>按分贝设置主音量（槽位占位）。</summary>
+    [PreserveSig]
+    int SetMasterVolumeLevelScalar(float level, ref Guid eventContext);
+
+    /// <summary>取主音量（分贝，槽位占位）。</summary>
+    [PreserveSig]
+    int GetMasterVolumeLevel(out float levelDb);
+
+    /// <summary>取主音量（0.0-1.0 标量）。</summary>
+    [PreserveSig]
+    int GetMasterVolumeLevelScalar(out float level);
+
+    /// <summary>按声道设置音量（槽位占位）。</summary>
+    [PreserveSig]
+    int SetChannelVolumeLevel(uint channel, float levelDb, ref Guid eventContext);
+
+    /// <summary>按声道设置音量标量（槽位占位）。</summary>
+    [PreserveSig]
+    int SetChannelVolumeLevelScalar(uint channel, float level, ref Guid eventContext);
+
+    /// <summary>取声道音量（分贝，槽位占位）。</summary>
+    [PreserveSig]
+    int GetChannelVolumeLevel(uint channel, out float levelDb);
+
+    /// <summary>取声道音量标量（槽位占位）。</summary>
+    [PreserveSig]
+    int GetChannelVolumeLevelScalar(uint channel, out float level);
+
+    /// <summary>设置静音。</summary>
+    [PreserveSig]
+    int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid eventContext);
+
+    /// <summary>查询静音状态。</summary>
+    [PreserveSig]
+    int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+}
+
+/// <summary>
+/// MMDeviceEnumerator COM 类（CLSID_BCDE0395-E52F-467C-8E3D-C4579291692E）。
+/// </summary>
+[ComImport]
+[Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+internal class MMDeviceEnumeratorComObject
+{
+}

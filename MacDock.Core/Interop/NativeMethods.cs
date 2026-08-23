@@ -223,6 +223,39 @@ internal static class NativeMethods
     public const int SW_HIDE = 0;
     public const int SW_SHOW = 5;
 
+    // ---- AppBar（SHAppBarMessage，菜单栏工作区保留） ----
+    /// <summary>ABM_NEW：注册一个新的 AppBar。</summary>
+    public const uint ABM_NEW = 0x00000000;
+    /// <summary>ABM_REMOVE：注销 AppBar 并归还工作区。</summary>
+    public const uint ABM_REMOVE = 0x00000001;
+    /// <summary>ABM_QUERYPOS：向系统询问建议位置（SETPOS 前先问）。</summary>
+    public const uint ABM_QUERYPOS = 0x00000002;
+    /// <summary>ABM_SETPOS：正式申请 AppBar 边界（系统可能调整后写回）。</summary>
+    public const uint ABM_SETPOS = 0x00000003;
+    /// <summary>ABN_FULLSCREENAPP：全屏应用出现/退出的通知（uState≠0 为进入全屏）。</summary>
+    public const uint ABN_FULLSCREENAPP = 0x0000002;
+
+    /// <summary>ABE_TOP：AppBar 紧贴屏幕上边缘。</summary>
+    public const int ABE_TOP = 0;
+
+    [DllImport("shell32.dll", SetLastError = true)]
+    public static extern IntPtr SHAppBarMessage(uint dwMessage, ref APPBARDATA pData);
+
+    /// <summary>
+    /// APPBARDATA：SHAppBarMessage 的输入输出结构（shellapi.h）。
+    /// cbSize 必须在调用前赋值；rc 为建议/实际边界（物理像素）。
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct APPBARDATA
+    {
+        public uint cbSize;
+        public IntPtr hWnd;
+        public uint uCallbackMessage;
+        public uint uEdge;
+        public RECT rc;
+        public int lParam;
+    }
+
     // ---- 物理内存总量（关于本机） ----
     /// <summary>
     /// 取全局内存状态。调用前必须把 dwLength 设为结构体大小，否则失败。

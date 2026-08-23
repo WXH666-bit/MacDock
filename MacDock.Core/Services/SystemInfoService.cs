@@ -15,7 +15,7 @@ public static class SystemInfoService
     private const string CurrentVersionKey = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
     private const string Unknown = "未知";
 
-    /// <summary>读取机器信息。调用方应放到后台线程（注册表 + WMI 级开销）。</summary>
+    /// <summary>读取机器信息。调用方应放到后台线程（注册表与内存状态查询，避免 UI 卡顿）。</summary>
     public static SystemInfo Read() => new(
         ReadProcessorName(),
         ReadTotalMemoryGb(),

@@ -79,6 +79,7 @@ public sealed class AppSettingsStore : IAppSettingsStore
 
             int? schemaVersion = null;
             bool? hideWindowsTaskbar = null;
+            bool? menuBarReserveWorkArea = null;
 
             while (reader.Read())
             {
@@ -97,6 +98,8 @@ public sealed class AppSettingsStore : IAppSettingsStore
                     {
                         SchemaVersion = schemaVersion.Value,
                         HideWindowsTaskbar = hideWindowsTaskbar.Value,
+                        // 老配置无此键时取默认 true（新字段向后兼容）
+                        MenuBarReserveWorkArea = menuBarReserveWorkArea ?? true,
                     };
                 }
 
@@ -140,6 +143,23 @@ public sealed class AppSettingsStore : IAppSettingsStore
                         hideWindowsTaskbar = reader.GetBoolean();
                         break;
 
+                    case nameof(AppSettings.MenuBarReserveWorkArea):
+                        if (menuBarReserveWorkArea.HasValue)
+                        {
+                            throw new JsonException(
+                                "The app settings document contains duplicate MenuBarReserveWorkArea.");
+                        }
+
+                        if (!reader.Read()
+                            || (reader.TokenType != JsonTokenType.True
+                                && reader.TokenType != JsonTokenType.False))
+                        {
+                            throw new JsonException("MenuBarReserveWorkArea must be a JSON boolean.");
+                        }
+
+                        menuBarReserveWorkArea = reader.GetBoolean();
+                        break;
+
                     default:
                         throw new JsonException(
                             $"The app settings document contains unknown member '{propertyName}'.");
@@ -157,6 +177,9 @@ public sealed class AppSettingsStore : IAppSettingsStore
             writer.WriteStartObject();
             writer.WriteNumber(nameof(AppSettings.SchemaVersion), value.SchemaVersion);
             writer.WriteBoolean(nameof(AppSettings.HideWindowsTaskbar), value.HideWindowsTaskbar);
+            writer.WriteBoolean(
+                nameof(AppSettings.MenuBarReserveWorkArea),
+                value.MenuBarReserveWorkArea);
             writer.WriteEndObject();
         }
     }

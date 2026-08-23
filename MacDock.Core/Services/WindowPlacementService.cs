@@ -46,6 +46,26 @@ public static class WindowPlacementService
             NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
     }
 
+    /// <summary>
+    /// 用一个非激活调用将窗口放置到指定物理像素位置（浮窗等弹出窗用）。
+    /// 不置顶、不抢焦点，纯位置调整。
+    /// </summary>
+    /// <returns>是否放置成功。</returns>
+    public static bool PlaceTopNoActivate(IntPtr hwnd, int left, int top, int width, int height)
+    {
+        if (hwnd == IntPtr.Zero)
+            return false;
+
+        return NativeMethods.SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            left,
+            top,
+            width,
+            height,
+            NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+    }
+
     /// <summary>取主显示器完整边界（物理像素）。</summary>
     private static bool TryGetPrimaryMonitorBounds(out RECT bounds)
     {

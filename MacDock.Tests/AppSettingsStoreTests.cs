@@ -109,7 +109,7 @@ public sealed class AppSettingsStoreTests
 
             Assert.True(Directory.Exists(Path.GetDirectoryName(path)));
             Assert.Equal(
-                "{\"SchemaVersion\":1,\"HideWindowsTaskbar\":true}",
+                "{\"SchemaVersion\":1,\"HideWindowsTaskbar\":true,\"MenuBarReserveWorkArea\":true}",
                 Utf8.GetString(File.ReadAllBytes(path)));
             Assert.Empty(Directory.GetFiles(tempDirectory, "*.tmp", SearchOption.AllDirectories));
         });

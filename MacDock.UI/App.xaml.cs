@@ -159,7 +159,8 @@ public partial class App : Application
                 try
                 {
                     _menuBarWindow = new MenuBarWindow(
-                        new MenuBarViewModel(_dockWindow.WindowMonitor));
+                        new MenuBarViewModel(_dockWindow.WindowMonitor),
+                        reserveWorkArea: startupResult.Settings.MenuBarReserveWorkArea);
                     _menuBarWindow.Show();
                 }
                 catch (Exception menuBarException)
