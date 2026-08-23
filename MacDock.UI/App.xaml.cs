@@ -26,6 +26,7 @@ public partial class App : Application
     private bool _isExiting;
     private bool _persistedOptInApplied;
     private DockWindow? _dockWindow;
+    private MenuBarWindow? _menuBarWindow;
     private TaskbarCoordinator? _taskbarCoordinator;
     private TaskbarStartupResult? _startupResult;
     private readonly CancellationTokenSource _startupCancellation = new();
@@ -152,6 +153,21 @@ public partial class App : Application
                 _dockWindow.SourceInitialized += OnDockSourceInitialized;
                 _dockWindow.ShellEnvironmentChanged += OnShellEnvironmentChanged;
                 _dockWindow.Show();
+
+                // 菜单栏在 Dock 之后创建，复用 Dock 的 WindowMonitor（不重复挂 WinEventHook）。
+                // 菜单栏失败不应连带 Dock 一起倒下，单独兜住异常。
+                try
+                {
+                    _menuBarWindow = new MenuBarWindow(
+                        new MenuBarViewModel(_dockWindow.WindowMonitor));
+                    _menuBarWindow.Show();
+                }
+                catch (Exception menuBarException)
+                {
+                    Logger.Error(menuBarException, "创建顶部菜单栏失败，Dock 继续运行");
+                    _menuBarWindow = null;
+                }
+
                 startupPublished = true;
             }).Task.ConfigureAwait(false);
         }
@@ -173,6 +189,15 @@ public partial class App : Application
             // Recovery resumes off the UI dispatcher. Any startup rollback of a
             // WPF window must therefore marshal both handler detachment and
             // Close() back to the window's owning dispatcher.
+            if (!startupPublished && _menuBarWindow is not null)
+            {
+                var failedMenuBar = _menuBarWindow;
+                _menuBarWindow = null;
+                await CloseWindowAsync(
+                    failedMenuBar,
+                    "启动失败后的菜单栏清理失败").ConfigureAwait(false);
+            }
+
             if (!startupPublished && _dockWindow is not null)
             {
                 var failedWindow = _dockWindow;
@@ -258,6 +283,27 @@ public partial class App : Application
         window.SourceInitialized -= OnDockSourceInitialized;
         window.ShellEnvironmentChanged -= OnShellEnvironmentChanged;
         window.Close();
+    }
+
+    /// <summary>在窗口自己的 dispatcher 上关闭窗口（菜单栏等无事件订阅的附属窗口）。</summary>
+    private static async Task CloseWindowAsync(Window window, string errorMessage)
+    {
+        try
+        {
+            if (window.Dispatcher.CheckAccess())
+            {
+                window.Close();
+                return;
+            }
+
+            await window.Dispatcher
+                .InvokeAsync(window.Close)
+                .Task.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Logger.Error(exception, errorMessage);
+        }
     }
 
     private bool ShouldStopStartup(CancellationToken cancellationToken)
@@ -477,6 +523,21 @@ public partial class App : Application
         {
             _dockWindow.SourceInitialized -= OnDockSourceInitialized;
             _dockWindow.ShellEnvironmentChanged -= OnShellEnvironmentChanged;
+        }
+
+        // 菜单栏随 Dock 一起退场，避免退出后残留置顶窗口
+        if (_menuBarWindow is not null)
+        {
+            var menuBar = _menuBarWindow;
+            _menuBarWindow = null;
+            try
+            {
+                menuBar.Close();
+            }
+            catch (Exception exception)
+            {
+                Logger.Error(exception, "退出时关闭菜单栏失败");
+            }
         }
 
         var coordinator = _taskbarCoordinator;

@@ -21,6 +21,7 @@ internal static class NativeMethods
     public const uint SWP_NOMOVE = 0x0002;
     public const uint SWP_NOSIZE = 0x0001;
     public const uint SWP_NOACTIVATE = 0x0010;
+    public const uint SWP_NOZORDER = 0x0004;
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -160,7 +161,8 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
-    [DllImport("user32.dll")]
+    /// <summary>取窗口标题。Unicode 版本，避免中文标题被 ANSI 转换损坏。</summary>
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetWindowTextW")]
     public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
 
     [DllImport("user32.dll")]
@@ -179,6 +181,14 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+    /// <summary>
+    /// 取显示器信息（物理像素的完整边界与工作区）。
+    /// 调用前必须把 cbSize 设为结构体大小。出处：user32.dll，winuser.h。
+    /// </summary>
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
     // ---- WinEventHook（窗口事件监听） ----
     /// <summary>WinEventHook 回调委托。</summary>
@@ -212,6 +222,40 @@ internal static class NativeMethods
     // ---- SW_ 常量 ----
     public const int SW_HIDE = 0;
     public const int SW_SHOW = 5;
+
+    // ---- 物理内存总量（关于本机） ----
+    /// <summary>
+    /// 取全局内存状态。调用前必须把 dwLength 设为结构体大小，否则失败。
+    /// 出处：kernel32.dll，Windows SDK sysinfoapi.h。
+    /// </summary>
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX lpBuffer);
+
+    /// <summary>MONITORINFO：显示器完整边界与工作区（物理像素）。</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO
+    {
+        public uint cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    /// <summary>MEMORYSTATUSEX：GlobalMemoryStatusEx 的输出结构（sysinfoapi.h）。</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MEMORYSTATUSEX
+    {
+        public uint dwLength;
+        public uint dwMemoryLoad;
+        public ulong ullTotalPhys;
+        public ulong ullAvailPhys;
+        public ulong ullTotalPageFile;
+        public ulong ullAvailPageFile;
+        public ulong ullTotalVirtual;
+        public ulong ullAvailVirtual;
+        public ulong ullAvailExtendedVirtual;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct WINDOWPLACEMENT

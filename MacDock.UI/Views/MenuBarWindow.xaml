@@ -1,0 +1,86 @@
+<Window x:Class="MacDock.UI.Views.MenuBarWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        Background="Transparent"
+        AllowsTransparency="False"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        ShowActivated="False"
+        Height="32">
+    <!--
+        顶部菜单栏：主屏通栏，贴顶 y=0，宽度=主屏全宽。
+        AllowsTransparency=False 是为了让 DWM/Accent 亚克力生效（分层窗口不支持）。
+        尺寸与位置由 code-behind 用物理像素通过 SetWindowPos 落位，规避 DPI 取整露缝。
+    -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome GlassFrameThickness="-1"
+                      CaptionHeight="0"
+                      ResizeBorderThickness="0"
+                      UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+
+    <Grid x:Name="RootGrid">
+        <!-- 亚克力之上叠一层极淡渐变提亮，与 Dock 玻璃条同一套观感 -->
+        <Border x:Name="GlassLayer">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#14FFFFFF" Offset="0"/>
+                    <GradientStop Color="#08FFFFFF" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+
+        <!-- 下边缘一根发丝分割线 -->
+        <Border Height="1" VerticalAlignment="Bottom" Background="#1FFFFFFF"/>
+
+        <Grid Margin="8,0,8,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 左：Logo + 前台应用名 -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <Border x:Name="LogoButton"
+                        Width="22" Height="22"
+                        Background="Transparent"
+                        CornerRadius="5"
+                        Cursor="Hand"
+                        ToolTip="关于本机"
+                        MouseLeftButtonUp="OnLogoClick">
+                    <!-- 矢量 Logo：无需二进制资产，任意 DPI 下都锐利 -->
+                    <Path Width="16" Height="16"
+                          Stretch="Uniform"
+                          Fill="#F2FFFFFF"
+                          Data="M8,0.6 C4.2,0.6 1.1,3.7 1.1,7.5 C1.1,11.3 4.2,14.4 8,14.4
+                                C11.8,14.4 14.9,11.3 14.9,7.5 C14.9,3.7 11.8,0.6 8,0.6 Z
+                                M8,2.4 C10.8,2.4 13.1,4.7 13.1,7.5 C13.1,10.3 10.8,12.6 8,12.6
+                                C5.2,12.6 2.9,10.3 2.9,7.5 C2.9,4.7 5.2,2.4 8,2.4 Z
+                                M8,4.6 C6.4,4.6 5.1,5.9 5.1,7.5 C5.1,9.1 6.4,10.4 8,10.4
+                                C9.6,10.4 10.9,9.1 10.9,7.5 C10.9,5.9 9.6,4.6 8,4.6 Z"/>
+                </Border>
+
+                <TextBlock Text="{Binding ForegroundAppName}"
+                           Foreground="#F2FFFFFF"
+                           FontSize="13"
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"
+                           Margin="8,0,0,0"
+                           MaxWidth="420"
+                           TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+
+            <!-- 中：M2.2 的音量/亮度/托盘区预留，暂空 -->
+
+            <!-- 右：时间 -->
+            <TextBlock Grid.Column="2"
+                       Text="{Binding ClockText}"
+                       Foreground="#F2FFFFFF"
+                       FontSize="13"
+                       VerticalAlignment="Center"/>
+        </Grid>
+    </Grid>
+</Window>

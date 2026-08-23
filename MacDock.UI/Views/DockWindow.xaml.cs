@@ -38,6 +38,12 @@ public partial class DockWindow : Window
 
     public event EventHandler? ShellEnvironmentChanged;
 
+    /// <summary>
+    /// Dock 持有的窗口监控实例，供菜单栏复用同一份 WinEventHook。
+    /// 生命周期归 MainViewModel，调用方不得 Dispose。
+    /// </summary>
+    public WindowMonitor WindowMonitor => _viewModel.WindowMonitor;
+
     public DockWindow(
         MainViewModel viewModel,
         ShellMessageClassifier shellMessages,

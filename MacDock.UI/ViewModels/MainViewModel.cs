@@ -22,6 +22,12 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Dock 项目列表。</summary>
     public ObservableCollection<DockItemViewModel> Items { get; } = new();
 
+    /// <summary>
+    /// 共享的窗口监控实例：菜单栏复用同一份 WinEventHook，避免重复挂钩。
+    /// 生命周期归 MainViewModel（Dispose 时统一注销）。
+    /// </summary>
+    public WindowMonitor WindowMonitor => _windowMonitor;
+
     /// <summary>启动失败时触发（参数为用户可读消息），由视图层显示托盘气泡。</summary>
     public event Action<string>? LaunchFailed;
 
@@ -84,7 +90,8 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            Logger.Warn(
+            // Debug 级：任何进程开关窗口都会走到这里，Warn 会刷屏（v10 审查遗留项）
+            Logger.Debug(
                 "运行状态上报未匹配到 Dock 项：exeName={0}，当前项={1}",
                 exeName,
                 string.Join(", ", Items.Select(i => $"{i.Model.Name}[path={i.Model.Path};store={i.Model.StoreAppName}]")));
