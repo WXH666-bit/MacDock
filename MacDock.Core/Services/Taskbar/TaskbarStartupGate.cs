@@ -30,7 +30,18 @@ public sealed class TaskbarStartupGate
     public async Task<TaskbarStartupResult> PrepareAsync(
         CancellationToken cancellationToken = default)
     {
-        await _serial.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await _serial.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return new TaskbarStartupResult(
+                new AppSettings(),
+                ChangesAllowed: false,
+                Error: "Taskbar startup was canceled before recovery began.");
+        }
+
         try
         {
             var changesAllowed = true;
@@ -58,6 +69,12 @@ public sealed class TaskbarStartupGate
                 error = $"Taskbar startup recovery failed: {exception.Message}";
             }
 
+            if (cancellationToken.IsCancellationRequested)
+            {
+                changesAllowed = false;
+                error ??= "Taskbar startup was canceled.";
+            }
+
             AppSettings settings;
             try
             {
@@ -69,6 +86,12 @@ public sealed class TaskbarStartupGate
                 changesAllowed = false;
                 error = CombineErrors(error, $"Settings could not be loaded: {exception.Message}");
                 settings = new AppSettings();
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                changesAllowed = false;
+                error ??= "Taskbar startup was canceled.";
             }
 
             return new TaskbarStartupResult(settings, changesAllowed, error);

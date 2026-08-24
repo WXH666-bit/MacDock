@@ -80,6 +80,21 @@ public sealed class MenuBarFlyoutViewModelTests
     }
 
     [Fact]
+    public void EndUserInput_InvokesCompletionCallback()
+    {
+        var completed = 0;
+        var vm = new MenuBarFlyoutViewModel(
+            null,
+            null,
+            () => completed++);
+
+        vm.BeginUserInput();
+        vm.EndUserInput();
+
+        Assert.Equal(1, completed);
+    }
+
+    [Fact]
     public void ToggleMute_InvokesCallback()
     {
         var mutedToggles = 0;

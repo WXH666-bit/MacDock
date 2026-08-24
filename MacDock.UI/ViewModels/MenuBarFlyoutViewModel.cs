@@ -12,6 +12,7 @@ public sealed partial class MenuBarFlyoutViewModel : ObservableObject
 {
     private readonly Action<double>? _onValueChanged;
     private readonly Action? _onToggleMute;
+    private readonly Action? _onUserInputCompleted;
     private bool _applyingSystemValue;
     private bool _userInteracting;
 
@@ -41,10 +42,14 @@ public sealed partial class MenuBarFlyoutViewModel : ObservableObject
 
     /// <param name="onValueChanged">滑条值变化回调（用户拖动）。</param>
     /// <param name="onToggleMute">静音切换回调。可为 null（亮度模式无静音）。</param>
-    public MenuBarFlyoutViewModel(Action<double>? onValueChanged, Action? onToggleMute)
+    public MenuBarFlyoutViewModel(
+        Action<double>? onValueChanged,
+        Action? onToggleMute,
+        Action? onUserInputCompleted = null)
     {
         _onValueChanged = onValueChanged;
         _onToggleMute = onToggleMute;
+        _onUserInputCompleted = onUserInputCompleted;
     }
 
     /// <summary>
@@ -130,7 +135,11 @@ public sealed partial class MenuBarFlyoutViewModel : ObservableObject
     public void BeginUserInput() => _userInteracting = true;
 
     /// <summary>结束用户交互。</summary>
-    public void EndUserInput() => _userInteracting = false;
+    public void EndUserInput()
+    {
+        _userInteracting = false;
+        _onUserInputCompleted?.Invoke();
+    }
 
     /// <summary>根据音量与静音状态映射喇叭四态图标键。</summary>
     internal static string VolumeIconState(double volume, bool muted)

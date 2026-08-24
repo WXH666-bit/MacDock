@@ -158,10 +158,22 @@ public partial class App : Application
                 // 菜单栏失败不应连带 Dock 一起倒下，单独兜住异常。
                 try
                 {
+                    // 任务栏恢复不可信时，所有会直接触碰 Shell/explorer 的菜单栏功能
+                    // 一并 fail-closed；普通覆盖式菜单栏仍可显示。
+                    var shellIntegrationsAllowed = startupResult.ChangesAllowed;
+                    if (!shellIntegrationsAllowed
+                        && (startupResult.Settings.MenuBarReserveWorkArea
+                            || startupResult.Settings.TrayTakeover))
+                    {
+                        Logger.Warn("任务栏启动恢复未完成，本次启动强制关闭 AppBar 与托盘接管");
+                    }
+
                     _menuBarWindow = new MenuBarWindow(
                         new MenuBarViewModel(_dockWindow.WindowMonitor),
-                        reserveWorkArea: startupResult.Settings.MenuBarReserveWorkArea,
-                        trayTakeover: startupResult.Settings.TrayTakeover);
+                        reserveWorkArea: shellIntegrationsAllowed
+                            && startupResult.Settings.MenuBarReserveWorkArea,
+                        trayTakeover: shellIntegrationsAllowed
+                            && startupResult.Settings.TrayTakeover);
                     _menuBarWindow.Show();
                 }
                 catch (Exception menuBarException)
@@ -232,7 +244,17 @@ public partial class App : Application
                 }
             }
 
-            mainViewModel?.Dispose();
+            if (mainViewModel is not null)
+            {
+                try
+                {
+                    mainViewModel.Dispose();
+                }
+                catch (Exception disposeException)
+                {
+                    Logger.Error(disposeException, "启动失败后的 MainViewModel 清理失败");
+                }
+            }
 
             if (coordinator is not null)
             {
@@ -535,6 +557,12 @@ public partial class App : Application
             try
             {
                 menuBar.Close();
+                var brightnessCompleted = menuBar.ShutdownCompletion.Wait(
+                    TimeSpan.FromSeconds(3));
+                if (!brightnessCompleted)
+                    Logger.Warn("退出时亮度写收尾超过 3 秒，已放弃等待");
+                else
+                    menuBar.ShutdownCompletion.GetAwaiter().GetResult();
             }
             catch (Exception exception)
             {
@@ -545,10 +573,12 @@ public partial class App : Application
         var coordinator = _taskbarCoordinator;
         if (coordinator is not null)
         {
+            var disposalCompleted = false;
             try
             {
                 var disposal = coordinator.DisposeAsync().AsTask();
-                if (!disposal.Wait(TimeSpan.FromSeconds(5)))
+                disposalCompleted = disposal.Wait(TimeSpan.FromSeconds(5));
+                if (!disposalCompleted)
                 {
                     Logger.Error("任务栏租约清理超过 5 秒，保留 journal/watchdog 恢复证据");
                 }
@@ -560,6 +590,23 @@ public partial class App : Application
             catch (Exception exception)
             {
                 Logger.Error(exception, "退出时任务栏租约清理失败");
+            }
+
+            if (disposalCompleted && coordinator.IsEnabled)
+            {
+                Logger.Error(
+                    "退出后任务栏恢复仍待处理：Enabled={0}，LastError={1}",
+                    coordinator.IsEnabled,
+                    coordinator.LastError ?? "<none>");
+            }
+            else if (disposalCompleted
+                && !string.IsNullOrWhiteSpace(coordinator.LastError))
+            {
+                // 物理任务栏已经恢复；保留设置写入或清理阶段的非致命错误，
+                // 但不能误报为“任务栏恢复仍待处理”。
+                Logger.Warn(
+                    "退出时任务栏已恢复，但清理过程报告错误：{0}",
+                    coordinator.LastError);
             }
         }
 

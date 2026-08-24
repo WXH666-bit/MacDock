@@ -64,6 +64,11 @@ public sealed class AppSettingsStore : IAppSettingsStore
 
     private sealed class StrictAppSettingsJsonConverter : JsonConverter<AppSettings>
     {
+        // Schema 1 曾把两个高风险 Shell 集成功能默认保存为 true，无法区分用户选择
+        // 与旧默认值。迁移到 Schema 2 时统一关闭，之后只有 Schema 2 的显式 true
+        // 才视为有效 opt-in。
+        private const int UnsafeShellDefaultsSchemaVersion = 1;
+
         public override bool HandleNull => true;
 
         public override AppSettings Read(
@@ -95,13 +100,19 @@ public sealed class AppSettingsStore : IAppSettingsStore
                             "The app settings document is missing HideWindowsTaskbar.");
                     }
 
+                    var isUnsafeLegacySchema =
+                        schemaVersion.Value == UnsafeShellDefaultsSchemaVersion;
+
                     return new AppSettings
                     {
-                        SchemaVersion = schemaVersion.Value,
+                        SchemaVersion = isUnsafeLegacySchema
+                            ? AppSettings.CurrentSchemaVersion
+                            : schemaVersion.Value,
                         HideWindowsTaskbar = hideWindowsTaskbar.Value,
-                        // 老配置无键时取默认 true（新字段向后兼容）
-                        MenuBarReserveWorkArea = menuBarReserveWorkArea ?? true,
-                        TrayTakeover = trayTakeover ?? true,
+                        MenuBarReserveWorkArea = !isUnsafeLegacySchema
+                            && (menuBarReserveWorkArea ?? false),
+                        TrayTakeover = !isUnsafeLegacySchema
+                            && (trayTakeover ?? false),
                     };
                 }
 

@@ -197,7 +197,12 @@ public sealed class TaskbarCoordinator : IAsyncDisposable
         }
 
         if (_settingsWritePending && !IsEnabled)
-            return await RetryPendingDisableSaveAsync(cancellationToken).ConfigureAwait(false);
+        {
+            var pendingSave = await RetryPendingDisableSaveAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (!pendingSave.Succeeded)
+                return pendingSave;
+        }
 
         bool acquired;
         try

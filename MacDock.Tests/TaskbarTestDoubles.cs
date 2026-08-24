@@ -1322,6 +1322,8 @@ internal sealed class FakeTaskbarRecoveryService : ITaskbarRecoveryService
 
     public Exception? StaleRecoveryException { get; set; }
 
+    public Action? AfterStaleRecovery { get; set; }
+
     public string? StaleRecoveryError { get; set; }
 
     public TaskbarRecoveryResult? StaleRecoveryResult { get; set; }
@@ -1359,17 +1361,15 @@ internal sealed class FakeTaskbarRecoveryService : ITaskbarRecoveryService
         if (StaleRecoveryException is not null)
             return Task.FromException<TaskbarRecoveryResult>(StaleRecoveryException);
 
-        if (StaleRecoveryResult is not null)
-            return Task.FromResult(StaleRecoveryResult);
-
-        return Task.FromResult(
-            new TaskbarRecoveryResult(
+        var result = StaleRecoveryResult ?? new TaskbarRecoveryResult(
                 Succeeded: StaleRecoverySucceeds,
                 RestoredCount: 0,
                 FailedHandles: Array.Empty<long>(),
                 Error: StaleRecoverySucceeds
                     ? null
-                    : StaleRecoveryError ?? "fake stale recovery failure"));
+                    : StaleRecoveryError ?? "fake stale recovery failure");
+        AfterStaleRecovery?.Invoke();
+        return Task.FromResult(result);
     }
 }
 
@@ -1522,6 +1522,8 @@ internal sealed class FakeAppSettingsStore : IAppSettingsStore
 
     public Action? BeforeLoad { get; set; }
 
+    public Action? AfterLoad { get; set; }
+
     public int LoadCalls { get; private set; }
 
     public int SaveCalls { get; private set; }
@@ -1536,7 +1538,9 @@ internal sealed class FakeAppSettingsStore : IAppSettingsStore
         if (LoadException is not null)
             throw LoadException;
 
-        return Copy(Current);
+        var settings = Copy(Current);
+        AfterLoad?.Invoke();
+        return settings;
     }
 
     public void Save(AppSettings settings)

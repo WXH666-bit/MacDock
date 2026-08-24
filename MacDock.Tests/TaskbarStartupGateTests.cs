@@ -148,6 +148,58 @@ public sealed class TaskbarStartupGateTests
     }
 
     [Fact]
+    public async Task PrepareAsync_WhenAlreadyCanceled_FailsClosedWithoutStartingRecovery()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        using var harness = StartupGateHarness.Create(
+            recoverySucceeds: true,
+            persistedTaskbarSetting: true);
+
+        var result = await harness.Gate.PrepareAsync(cancellation.Token);
+
+        Assert.False(result.ChangesAllowed);
+        Assert.False(result.Settings.HideWindowsTaskbar);
+        Assert.Contains("canceled", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, harness.Recovery.StaleRecoveryCalls);
+        Assert.Equal(0, harness.Settings.LoadCalls);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCanceledAfterRecoveryBeforeSettingsLoad_FailsClosed()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var harness = StartupGateHarness.Create(
+            recoverySucceeds: true,
+            persistedTaskbarSetting: true);
+        harness.Recovery.AfterStaleRecovery = cancellation.Cancel;
+
+        var result = await harness.Gate.PrepareAsync(cancellation.Token);
+
+        Assert.False(result.ChangesAllowed);
+        Assert.True(result.Settings.HideWindowsTaskbar);
+        Assert.Contains("canceled", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, harness.Settings.LoadCalls);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_WhenCanceledDuringSettingsLoad_FailsClosed()
+    {
+        using var cancellation = new CancellationTokenSource();
+        using var harness = StartupGateHarness.Create(
+            recoverySucceeds: true,
+            persistedTaskbarSetting: true);
+        harness.Settings.AfterLoad = cancellation.Cancel;
+
+        var result = await harness.Gate.PrepareAsync(cancellation.Token);
+
+        Assert.False(result.ChangesAllowed);
+        Assert.True(result.Settings.HideWindowsTaskbar);
+        Assert.Contains("canceled", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, harness.Settings.LoadCalls);
+    }
+
+    [Fact]
     public async Task PrepareAsync_ValidKilledWatchdogJournal_IsRecoveredBeforeSettingsLoad()
     {
         var events = new List<string>();

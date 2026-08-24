@@ -2,21 +2,21 @@ namespace MacDock.Core.Models;
 
 public sealed class AppSettings
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public bool HideWindowsTaskbar { get; set; }
 
     /// <summary>
-    /// 菜单栏是否用 AppBar 保留顶部工作区（默认开）。
-    /// AppBar 副作用不可控时用户可置 false 一键回退到覆盖式（M2.1 行为）。
+    /// 菜单栏是否用 AppBar 保留顶部工作区（安全默认关闭）。
+    /// 该功能会直接参与 Windows Shell 工作区协调，必须由用户显式开启。
     /// </summary>
-    public bool MenuBarReserveWorkArea { get; set; } = true;
+    public bool MenuBarReserveWorkArea { get; set; }
 
     /// <summary>
-    /// 是否接管任务栏托盘（默认开）。跨进程只读 explorer 托盘数据属高风险特性，
-    /// 出问题时可置 false 一键回退（菜单栏不显示托盘区，原生任务栏托盘不受影响）。
+    /// 是否接管任务栏托盘（安全默认关闭）。该功能依赖 explorer 内部实现，
+    /// 必须由用户显式开启；关闭时不显示菜单栏托盘区，原生任务栏托盘不受影响。
     /// </summary>
-    public bool TrayTakeover { get; set; } = true;
+    public bool TrayTakeover { get; set; }
 }

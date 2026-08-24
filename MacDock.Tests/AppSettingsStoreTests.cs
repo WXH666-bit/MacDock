@@ -12,13 +12,15 @@ public sealed class AppSettingsStoreTests
     {
         var settings = new AppSettings();
 
-        Assert.Equal(1, AppSettings.CurrentSchemaVersion);
+        Assert.Equal(2, AppSettings.CurrentSchemaVersion);
         Assert.Equal(AppSettings.CurrentSchemaVersion, settings.SchemaVersion);
         Assert.False(settings.HideWindowsTaskbar);
+        Assert.False(settings.MenuBarReserveWorkArea);
+        Assert.False(settings.TrayTakeover);
     }
 
     [Fact]
-    public void Load_MissingFile_ReturnsFreshDisabledSchemaOneAndCreatesNothing()
+    public void Load_MissingFile_ReturnsFreshDisabledCurrentSchemaAndCreatesNothing()
     {
         WithTempDirectory(tempDirectory =>
         {
@@ -29,17 +31,21 @@ public sealed class AppSettingsStoreTests
             var second = store.Load();
 
             Assert.NotSame(first, second);
-            Assert.Equal(1, first.SchemaVersion);
-            Assert.Equal(1, second.SchemaVersion);
+            Assert.Equal(2, first.SchemaVersion);
+            Assert.Equal(2, second.SchemaVersion);
             Assert.False(first.HideWindowsTaskbar);
             Assert.False(second.HideWindowsTaskbar);
+            Assert.False(first.MenuBarReserveWorkArea);
+            Assert.False(second.MenuBarReserveWorkArea);
+            Assert.False(first.TrayTakeover);
+            Assert.False(second.TrayTakeover);
             Assert.False(File.Exists(path));
             Assert.Empty(Directory.GetFileSystemEntries(tempDirectory, "*", SearchOption.AllDirectories));
         });
     }
 
     [Fact]
-    public void Load_MissingParentDirectory_ReturnsFreshDisabledSchemaOneAndCreatesNothing()
+    public void Load_MissingParentDirectory_ReturnsFreshDisabledCurrentSchemaAndCreatesNothing()
     {
         WithTempDirectory(tempDirectory =>
         {
@@ -51,10 +57,14 @@ public sealed class AppSettingsStoreTests
             var second = store.Load();
 
             Assert.NotSame(first, second);
-            Assert.Equal(1, first.SchemaVersion);
-            Assert.Equal(1, second.SchemaVersion);
+            Assert.Equal(2, first.SchemaVersion);
+            Assert.Equal(2, second.SchemaVersion);
             Assert.False(first.HideWindowsTaskbar);
             Assert.False(second.HideWindowsTaskbar);
+            Assert.False(first.MenuBarReserveWorkArea);
+            Assert.False(second.MenuBarReserveWorkArea);
+            Assert.False(first.TrayTakeover);
+            Assert.False(second.TrayTakeover);
             Assert.False(Directory.Exists(missingParent));
             Assert.False(File.Exists(path));
             Assert.Empty(Directory.GetFileSystemEntries(tempDirectory, "*", SearchOption.AllDirectories));
@@ -73,7 +83,7 @@ public sealed class AppSettingsStoreTests
             store.Save(settings);
             var loaded = store.Load();
 
-            Assert.Equal(1, loaded.SchemaVersion);
+            Assert.Equal(2, loaded.SchemaVersion);
             Assert.True(loaded.HideWindowsTaskbar);
             Assert.Empty(Directory.GetFiles(tempDirectory, "*.tmp", SearchOption.AllDirectories));
         });
@@ -91,7 +101,7 @@ public sealed class AppSettingsStoreTests
             store.Save(settings);
             var loaded = store.Load();
 
-            Assert.Equal(1, loaded.SchemaVersion);
+            Assert.Equal(2, loaded.SchemaVersion);
             Assert.False(loaded.HideWindowsTaskbar);
             Assert.Empty(Directory.GetFiles(tempDirectory, "*.tmp", SearchOption.AllDirectories));
         });
@@ -109,7 +119,7 @@ public sealed class AppSettingsStoreTests
 
             Assert.True(Directory.Exists(Path.GetDirectoryName(path)));
             Assert.Equal(
-                "{\"SchemaVersion\":1,\"HideWindowsTaskbar\":true,\"MenuBarReserveWorkArea\":true,\"TrayTakeover\":true}",
+                "{\"SchemaVersion\":2,\"HideWindowsTaskbar\":true,\"MenuBarReserveWorkArea\":false,\"TrayTakeover\":false}",
                 Utf8.GetString(File.ReadAllBytes(path)));
             Assert.Empty(Directory.GetFiles(tempDirectory, "*.tmp", SearchOption.AllDirectories));
         });
@@ -141,12 +151,57 @@ public sealed class AppSettingsStoreTests
         WithTempDirectory(tempDirectory =>
         {
             var path = Path.Combine(tempDirectory, "settings.json");
-            WriteUtf8(path, "{\"HideWindowsTaskbar\":true,\"SchemaVersion\":1}");
+            WriteUtf8(path, "{\"HideWindowsTaskbar\":true,\"SchemaVersion\":2}");
 
             var loaded = new AppSettingsStore(path).Load();
 
-            Assert.Equal(1, loaded.SchemaVersion);
+            Assert.Equal(2, loaded.SchemaVersion);
             Assert.True(loaded.HideWindowsTaskbar);
+            Assert.False(loaded.MenuBarReserveWorkArea);
+            Assert.False(loaded.TrayTakeover);
+        });
+    }
+
+    [Fact]
+    public void SaveThenLoad_ExplicitShellIntegrationsTrue_RoundTrips()
+    {
+        WithTempDirectory(tempDirectory =>
+        {
+            var path = Path.Combine(tempDirectory, "settings.json");
+            var store = new AppSettingsStore(path);
+
+            store.Save(new AppSettings
+            {
+                MenuBarReserveWorkArea = true,
+                TrayTakeover = true,
+            });
+
+            var loaded = store.Load();
+
+            Assert.True(loaded.MenuBarReserveWorkArea);
+            Assert.True(loaded.TrayTakeover);
+            Assert.Empty(Directory.GetFiles(tempDirectory, "*.tmp", SearchOption.AllDirectories));
+        });
+    }
+
+    [Theory]
+    [InlineData("{\"SchemaVersion\":1,\"HideWindowsTaskbar\":false}")]
+    [InlineData("{\"SchemaVersion\":1,\"HideWindowsTaskbar\":false,\"MenuBarReserveWorkArea\":true,\"TrayTakeover\":true}")]
+    [InlineData("{\"SchemaVersion\":1,\"HideWindowsTaskbar\":false,\"MenuBarReserveWorkArea\":true}")]
+    [InlineData("{\"SchemaVersion\":1,\"HideWindowsTaskbar\":false,\"TrayTakeover\":true}")]
+    public void Load_SchemaOne_MigratesUnsafeShellIntegrationsOffWithoutRewritingSource(string json)
+    {
+        WithTempDirectory(tempDirectory =>
+        {
+            var path = Path.Combine(tempDirectory, "settings.json");
+            var originalBytes = WriteUtf8(path, json);
+
+            var loaded = new AppSettingsStore(path).Load();
+
+            Assert.Equal(AppSettings.CurrentSchemaVersion, loaded.SchemaVersion);
+            Assert.False(loaded.MenuBarReserveWorkArea);
+            Assert.False(loaded.TrayTakeover);
+            Assert.Equal(originalBytes, File.ReadAllBytes(path));
         });
     }
 
@@ -249,7 +304,7 @@ public sealed class AppSettingsStoreTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(2)]
+    [InlineData(3)]
     public void Load_UnsupportedSchema_ThrowsAndPreservesExactSourceBytes(int schemaVersion)
     {
         WithTempDirectory(tempDirectory =>
@@ -288,12 +343,12 @@ public sealed class AppSettingsStoreTests
             var path = Path.Combine(tempDirectory, "settings.json");
             var originalBytes = WriteUtf8(path, "{\"SchemaVersion\":1,\"HideWindowsTaskbar\":false}");
             var store = new AppSettingsStore(path);
-            var unsupported = new AppSettings { SchemaVersion = 2, HideWindowsTaskbar = true };
+            var unsupported = new AppSettings { SchemaVersion = 3, HideWindowsTaskbar = true };
 
             Assert.Throws<InvalidDataException>(() => store.Save(unsupported));
 
             Assert.Equal(originalBytes, File.ReadAllBytes(path));
-            Assert.Equal(2, unsupported.SchemaVersion);
+            Assert.Equal(3, unsupported.SchemaVersion);
             Assert.True(unsupported.HideWindowsTaskbar);
             Assert.Empty(Directory.GetFiles(tempDirectory, "*.tmp", SearchOption.AllDirectories));
         });

@@ -21,6 +21,9 @@ public partial class MenuBarWindow : Window
     /// <summary>通栏高度（DIP）。</summary>
     public const double BarHeight = 32;
 
+    /// <summary>菜单栏关闭后的有界亮度写收尾任务。</summary>
+    internal Task ShutdownCompletion => _viewModel.BrightnessShutdownCompletion;
+
     private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
     private readonly MenuBarViewModel _viewModel;
@@ -37,7 +40,7 @@ public partial class MenuBarWindow : Window
     /// <param name="viewModel">菜单栏视图模型。</param>
     /// <param name="reserveWorkArea">是否注册 AppBar 保留工作区（设置项 MenuBarReserveWorkArea）。</param>
     /// <param name="trayTakeover">是否接管任务栏托盘（设置项 TrayTakeover）。</param>
-    public MenuBarWindow(MenuBarViewModel viewModel, bool reserveWorkArea = true, bool trayTakeover = true)
+    public MenuBarWindow(MenuBarViewModel viewModel, bool reserveWorkArea = false, bool trayTakeover = false)
     {
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         _reserveWorkArea = reserveWorkArea;
@@ -61,7 +64,12 @@ public partial class MenuBarWindow : Window
                 else
                     _viewModel.SetBrightnessFromFlyout(value);
             },
-            _viewModel.ToggleMuteFromFlyout);
+            _viewModel.ToggleMuteFromFlyout,
+            () =>
+            {
+                if (!_flyoutIsVolume)
+                    _viewModel.FlushBrightnessWrite();
+            });
         _flyout = new MenuBarFlyoutWindow(flyoutViewModel);
 
         // 外部音量/亮度变化（Fn 键等）刷新时同步到已打开的浮窗
@@ -307,7 +315,8 @@ public partial class MenuBarWindow : Window
             }
 
             _flyoutIsVolume = false;
-            _flyout.ViewModel.ShowBrightness(_viewModel.GetBrightnessLevel() ?? 0);
+            // 弹窗首值只读 ViewModel 缓存，不在 UI 线程触发 WMI。
+            _flyout.ViewModel.ShowBrightness(_viewModel.CachedBrightnessLevel ?? 0);
             _flyout.ShowBelowIcon(ComputeAnchor(BrightnessIcon));
         }
         catch (Exception exception)
@@ -346,7 +355,8 @@ public partial class MenuBarWindow : Window
         }
         else
         {
-            _flyout.ViewModel.SetValueFromSystem(_viewModel.GetBrightnessLevel() ?? 0);
+            // 低频刷新结果已经由 ViewModel 异步回灌；这里继续只读缓存。
+            _flyout.ViewModel.SetValueFromSystem(_viewModel.CachedBrightnessLevel ?? 0);
         }
     }
 

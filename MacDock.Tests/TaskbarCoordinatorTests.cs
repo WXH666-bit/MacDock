@@ -275,6 +275,43 @@ public sealed class TaskbarCoordinatorTests
     }
 
     [Fact]
+    public async Task Enable_AfterPendingDisableSaveRetry_ContinuesWithRequestedEnable()
+    {
+        var harness = CoordinatorHarness.Create();
+
+        try
+        {
+            Assert.True(
+                (await harness.Coordinator.SetEnabledAsync(true))
+                .Succeeded);
+
+            harness.Settings.SaveException = new IOException("fake settings save failure");
+            var failedDisable = await harness.Coordinator.SetEnabledAsync(false);
+
+            Assert.False(failedDisable.Succeeded);
+            Assert.False(failedDisable.Enabled);
+            Assert.False(harness.Coordinator.IsEnabled);
+            Assert.Equal(TaskbarLeaseState.Released, harness.Lease.State);
+
+            harness.Settings.SaveException = null;
+            var enable = await harness.Coordinator.SetEnabledAsync(true);
+
+            Assert.True(enable.Succeeded);
+            Assert.True(enable.Enabled);
+            Assert.True(harness.Coordinator.IsEnabled);
+            Assert.Equal(TaskbarLeaseState.Active, harness.Lease.State);
+            Assert.Equal(2, harness.Lease.AcquireCalls);
+            Assert.Equal(1, harness.Lease.ReleaseCalls);
+            Assert.True(harness.Settings.Load().HideWindowsTaskbar);
+            Assert.Equal(4, harness.Settings.SaveCalls);
+        }
+        finally
+        {
+            await harness.Coordinator.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task DuplicateEnableRequests_AreIdempotent()
     {
         var harness = CoordinatorHarness.Create();
