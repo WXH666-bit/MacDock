@@ -53,7 +53,6 @@ public partial class MenuBarWindow : Window
         _trayReader = new TrayIconReader();
         _trayVm = new TrayAreaViewModel(_trayReader, trayTakeover);
         TrayRegion.DataContext = _trayVm;
-        _trayVm.Start();
 
         // 浮窗在构造时创建：滑条写回依当前模式分派到音量/亮度，静音按钮固定走音量
         var flyoutViewModel = new MenuBarFlyoutViewModel(
@@ -93,11 +92,18 @@ public partial class MenuBarWindow : Window
             };
         }
 
-        // Loaded 再校准一次：布局完成后 DPI 时序才稳定（首帧缩放可能与句柄创建时不同）
-        Loaded += (_, _) => PositionBar();
+        // Loaded 后再启动托盘首读：窗口布局/Dispatcher 已就绪，构造阶段不触碰 explorer。
+        Loaded += OnLoaded;
 
         // 分辨率/缩放变化后重新贴顶（多显示器扩展点：M2.1 只做主屏）
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        // 布局完成后 DPI 时序才稳定；托盘首读仍由 VM 异步投递到后台。
+        PositionBar();
+        _trayVm.Start();
     }
 
     protected override void OnSourceInitialized(EventArgs e)

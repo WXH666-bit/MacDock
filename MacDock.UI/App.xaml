@@ -7,6 +7,11 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Themes/LightTheme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+            <BitmapImage x:Key="MacDockLogo"
+                         UriSource="pack://application:,,,/Assets/Brand/MacDockLogo.png"/>
+            <!-- H.NotifyIcon 必须接收真实 ICO；把 PNG 交给 IconSource 会在运行时解析失败。 -->
+            <BitmapImage x:Key="MacDockTrayIcon"
+                         UriSource="pack://application:,,,/Assets/Brand/MacDock.ico"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -10,6 +10,7 @@
     <RootNamespace>MacDock.UI</RootNamespace>
     <AssemblyName>MacDock</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Brand\MacDock.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -35,6 +36,9 @@
   <ItemGroup>
     <!-- 内置 macOS 风格图标（pack URI 访问：pack://application:,,,/Assets/Icons/*.png） -->
     <Resource Include="Assets\Icons\*.png" />
+    <!-- MacDock 品牌资产：运行时 UI 使用透明 PNG，Windows 可执行文件使用多尺寸 ICO。 -->
+    <Resource Include="Assets\Brand\MacDockLogo.png" />
+    <Resource Include="Assets\Brand\MacDock.ico" />
   </ItemGroup>
 
   <ItemGroup>

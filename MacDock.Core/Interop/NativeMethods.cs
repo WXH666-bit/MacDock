@@ -253,7 +253,7 @@ internal static class NativeMethods
         public uint uCallbackMessage;
         public uint uEdge;
         public RECT rc;
-        public int lParam;
+        public IntPtr lParam;
     }
 
     // ---- 物理内存总量（关于本机） ----

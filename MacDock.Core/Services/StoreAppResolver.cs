@@ -66,7 +66,8 @@ public static class StoreAppResolver
     /// <summary>通过 shell:AppsFolder\AUMID 启动商店应用。</summary>
     public static void LaunchByAumid(string aumid)
     {
-        Process.Start(new ProcessStartInfo($"shell:AppsFolder\\{aumid}") { UseShellExecute = true });
+        using var process = Process.Start(
+            new ProcessStartInfo($"shell:AppsFolder\\{aumid}") { UseShellExecute = true });
     }
 
     private static string? GetFirstAumid(Package? package)

@@ -70,6 +70,13 @@ public sealed class NativeAbiTests
     }
 
     [Fact]
+    public void AppBarData_UsesPointerSizedLParam()
+    {
+        Assert.Equal(typeof(IntPtr), typeof(NativeMethods.APPBARDATA).GetField("lParam")!.FieldType);
+        Assert.Equal(IntPtr.Size == 8 ? 48 : 36, Marshal.SizeOf<NativeMethods.APPBARDATA>());
+    }
+
+    [Fact]
     public void UnicodeTextApis_UseUnicodeCharSet()
     {
         var methodNames = new[] { "GetWindowText", "GetMonitorInfo", "RegisterWindowMessageW" };

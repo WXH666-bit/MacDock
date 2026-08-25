@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="关于本机"
+        Icon="{StaticResource MacDockLogo}"
         Width="420" SizeToContent="Height"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
@@ -44,13 +45,24 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <TextBlock Grid.Row="0"
-                       Text="关于本机"
-                       Foreground="#FFFFFFFF"
-                       FontSize="18"
-                       FontWeight="SemiBold"
-                       HorizontalAlignment="Center"
-                       Margin="0,0,0,4"/>
+            <StackPanel Grid.Row="0"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        Margin="0,0,0,4">
+                <Image Source="{StaticResource MacDockLogo}"
+                       Width="34" Height="34"
+                       Margin="0,0,10,0"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="MacDock"
+                               Foreground="#FFFFFFFF"
+                               FontSize="16"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="关于本机"
+                               Foreground="#A6FFFFFF"
+                               FontSize="11"/>
+                </StackPanel>
+            </StackPanel>
 
             <!-- 四项明细统一放在下方表格，标题区不重复显示 -->
             <Border Grid.Row="1" Height="18"/>

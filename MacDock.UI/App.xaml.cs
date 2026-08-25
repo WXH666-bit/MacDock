@@ -18,6 +18,9 @@ namespace MacDock.UI;
 public partial class App : Application
 {
     private const string SingleInstanceMutexName = @"Global\MacDock-SingleInstance";
+    // 2026-08-25 真机回归：当前实现未改变工作区，却让 explorer 持续增 CPU/句柄并失去响应。
+    // 保留实现和单测供以后重做，但发布路径必须 fail-closed，不能由 settings.json 绕过。
+    private const bool EnableAppBarRuntime = false;
     private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
     private static Mutex? _singleInstanceMutex;
@@ -168,10 +171,17 @@ public partial class App : Application
                         Logger.Warn("任务栏启动恢复未完成，本次启动强制关闭 AppBar 与托盘接管");
                     }
 
+                    var appBarRequested = shellIntegrationsAllowed
+                        && startupResult.Settings.MenuBarReserveWorkArea;
+                    if (appBarRequested && !EnableAppBarRuntime)
+                    {
+                        Logger.Warn(
+                            "AppBar 真机安全回归未通过，本次启动强制使用覆盖式菜单栏");
+                    }
+
                     _menuBarWindow = new MenuBarWindow(
                         new MenuBarViewModel(_dockWindow.WindowMonitor),
-                        reserveWorkArea: shellIntegrationsAllowed
-                            && startupResult.Settings.MenuBarReserveWorkArea,
+                        reserveWorkArea: appBarRequested && EnableAppBarRuntime,
                         trayTakeover: shellIntegrationsAllowed
                             && startupResult.Settings.TrayTakeover);
                     _menuBarWindow.Show();
@@ -497,7 +507,7 @@ public partial class App : Application
             var tray = new TaskbarIcon
             {
                 ToolTipText = "MacDock",
-                Icon = System.Drawing.SystemIcons.Application,
+                IconSource = (System.Windows.Media.ImageSource)FindResource("MacDockTrayIcon"),
             };
             tray.ShowNotification(
                 "MacDock",

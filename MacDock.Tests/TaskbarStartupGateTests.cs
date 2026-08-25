@@ -251,9 +251,9 @@ public sealed class TaskbarStartupGateTests
         var originalBytes = JsonSerializer.SerializeToUtf8Bytes(
             LeaseSamples.Active(RealStartupRecoveryHarness.LeaseId, handle: 42)
                 with
-                {
-                    SchemaVersion = 999,
-                });
+            {
+                SchemaVersion = 999,
+            });
         harness.WriteJournalBytes(originalBytes);
         var preservedBeforeLoad = false;
         harness.Settings.BeforeLoad = () =>

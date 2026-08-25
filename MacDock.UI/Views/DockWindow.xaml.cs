@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 using System.Windows.Media.Animation;
 using H.NotifyIcon.Core;
@@ -57,9 +58,6 @@ public partial class DockWindow : Window
 
         InitializeComponent();
         DataContext = _viewModel;
-
-        // 托盘图标（M1 使用系统默认图标，后续替换为自定义 .ico）
-        TrayIcon.Icon = System.Drawing.SystemIcons.Application;
 
         _viewModel.LaunchFailed += OnLaunchFailed;
 
@@ -221,6 +219,19 @@ public partial class DockWindow : Window
         string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase);
 
     // ---- 托盘菜单 ----
+    private void OnTrayContextMenuOpened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu menu)
+            return;
+
+        // H.NotifyIcon opens WPF menus at the Shell callback's absolute anchor.
+        // Windows 11 can report the notification-area anchor for an icon inside
+        // the overflow panel, so use the pointer that actually opened the menu.
+        menu.Placement = PlacementMode.MousePoint;
+        menu.HorizontalOffset = 0;
+        menu.VerticalOffset = 0;
+    }
+
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
         var settings = new SettingsWindow(_settingsViewModelFactory()) { Owner = this };

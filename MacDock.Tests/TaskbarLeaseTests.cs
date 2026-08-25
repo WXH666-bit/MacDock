@@ -532,13 +532,13 @@ public sealed class TaskbarLeaseTests
             "22222222-2222-2222-2222-222222222222",
             handle: 42)
             with
-            {
-                Windows =
-                [LeaseSamples.Active(
-                        "22222222-2222-2222-2222-222222222222",
-                        handle: 42)
-                    .Windows[0] with { MutationState = oldMutationState }],
-            };
+        {
+            Windows =
+            [LeaseSamples.Active(
+                    "22222222-2222-2222-2222-222222222222",
+                    handle: 42)
+                .Windows[0] with { MutationState = oldMutationState }],
+        };
         var events = new List<string>();
         var harness = LeaseHarness.Create(events, existingDocument: oldDocument);
 

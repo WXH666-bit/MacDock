@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 namespace MacDock.Core.Interop;
 
 /// <summary>
-/// 托盘（通知区）互操作声明集中地。仅用于只读读取 explorer 任务栏托盘的按钮数据与
-/// 向托盘窗口转发点击消息；不做任何对 explorer 的写入操作。
+/// 托盘（通知区）互操作声明集中地。用于读取 explorer 任务栏托盘按钮数据与转发点击消息。
+/// 旧版工具栏读取会在 explorer 中分配临时输出缓冲，但不会修改其既有数据结构。
 ///
 /// 全程按 x64 假设（MacDock 面向 64 位 Windows；TBBUTTON 结构在 x64 下为自然对齐 32 字节）。
 /// </summary>
@@ -21,6 +21,8 @@ internal static class TrayInterop
     public const string SysPager = "SysPager";
     /// <summary>实际承载按钮的工具栏类。</summary>
     public const string ToolbarWindow32 = "ToolbarWindow32";
+    /// <summary>Windows 11 XAML 任务栏宿主；出现它且没有 ToolbarWindow32 时旧托盘结构不可用。</summary>
+    public const string ModernTaskbarCoreWindow = "Windows.UI.Core.CoreWindow";
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
     public static extern IntPtr FindWindowW(string? lpClassName, string? lpWindowName);
@@ -36,9 +38,6 @@ internal static class TrayInterop
     public const uint TB_BUTTONCOUNT = WM_USER + 24;
     /// <summary>TB_GETBUTTON = WM_USER + 23：按索引取按钮（lParam 指向远程 TBBUTTON 缓冲）。</summary>
     public const uint TB_GETBUTTON = WM_USER + 23;
-    /// <summary>TB_GETBUTTONTEXTW = WM_USER + 75：取按钮文本（宽字符版）。</summary>
-    public const uint TB_GETBUTTONTEXTW = WM_USER + 75;
-
     // ---- 鼠标消息（点击转发） ----
     /// <summary>WM_LBUTTONUP：左键抬起。</summary>
     public const uint WM_LBUTTONUP = 0x0202;
@@ -50,7 +49,6 @@ internal static class TrayInterop
     // ---- 进程内存访问权限 ----
     public const int PROCESS_VM_OPERATION = 0x0008;
     public const int PROCESS_VM_READ = 0x0010;
-    public const int PROCESS_VM_WRITE = 0x0020;
 
     // ---- VirtualAllocEx 常量 ----
     public const uint MEM_COMMIT = 0x1000;
@@ -74,7 +72,8 @@ internal static class TrayInterop
     public static extern bool ReadProcessMemory(
         IntPtr hProcess, IntPtr lpBaseAddress, IntPtr lpBuffer, UIntPtr nSize, out UIntPtr lpNumberOfBytesRead);
 
-    [DllImport("kernel32.dll")]
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool CloseHandle(IntPtr hObject);
 
     // ---- 窗口消息发送 ----
@@ -85,7 +84,7 @@ internal static class TrayInterop
 
     /// <summary>
     /// SendMessageTimeoutW：带超时的同步发送窗口消息。目标窗口无响应（explorer 假死）时按
-    /// fuFlags 中止等待并返回 false，避免调用方线程（UI 500ms 探测）被卡死。
+    /// fuFlags 中止等待并返回 false；调用方必须在后台线程调用，避免阻塞 UI。
     /// 返回值是 bool（失败可由 GetLastError 扩展），消息结果写入 lpdwResult。
     /// </summary>
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

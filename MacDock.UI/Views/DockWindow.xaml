@@ -17,9 +17,11 @@
         双窗口结构使放大的图标能溢出玻璃条上方，还原 macOS Dock 的观感。
     -->
     <Grid x:Name="RootGrid">
-        <tb:TaskbarIcon x:Name="TrayIcon" ToolTipText="MacDock">
+        <tb:TaskbarIcon x:Name="TrayIcon"
+                        ToolTipText="MacDock"
+                        IconSource="{StaticResource MacDockTrayIcon}">
             <tb:TaskbarIcon.ContextMenu>
-                <ContextMenu>
+                <ContextMenu Opened="OnTrayContextMenuOpened">
                     <MenuItem Header="设置" Click="OnSettingsClick"/>
                     <MenuItem Header="退出" Click="OnExitClick"/>
                 </ContextMenu>

@@ -167,38 +167,38 @@ public sealed class TaskbarRecoveryServiceTests
             showCommand: NativeMethods.SW_SHOW);
         var document = LeaseSamples.Active("11111111-1111-1111-1111-111111111111", 42)
             with
-            {
-                Windows =
-                [
-                    new TaskbarWindowSnapshot(
-                        42,
-                        10,
-                        20,
-                        "Shell_TrayWnd",
-                        30,
-                        true,
-                        NativeMethods.SW_SHOW,
-                        TaskbarWindowMutationState.HiddenByLease),
-                    new TaskbarWindowSnapshot(
-                        43,
-                        11,
-                        21,
-                        "Shell_TrayWnd",
-                        30,
-                        true,
-                        NativeMethods.SW_SHOW,
-                        TaskbarWindowMutationState.HidePending),
-                    new TaskbarWindowSnapshot(
-                        44,
-                        12,
-                        22,
-                        "Shell_TrayWnd",
-                        30,
-                        true,
-                        NativeMethods.SW_SHOW,
-                        TaskbarWindowMutationState.Unchanged),
-                ],
-            };
+        {
+            Windows =
+            [
+                new TaskbarWindowSnapshot(
+                    42,
+                    10,
+                    20,
+                    "Shell_TrayWnd",
+                    30,
+                    true,
+                    NativeMethods.SW_SHOW,
+                    TaskbarWindowMutationState.HiddenByLease),
+                new TaskbarWindowSnapshot(
+                    43,
+                    11,
+                    21,
+                    "Shell_TrayWnd",
+                    30,
+                    true,
+                    NativeMethods.SW_SHOW,
+                    TaskbarWindowMutationState.HidePending),
+                new TaskbarWindowSnapshot(
+                    44,
+                    12,
+                    22,
+                    "Shell_TrayWnd",
+                    30,
+                    true,
+                    NativeMethods.SW_SHOW,
+                    TaskbarWindowMutationState.Unchanged),
+            ],
+        };
         var journal = new FakeTaskbarLeaseJournal(events, document);
         var fileLock = new FakeTaskbarLeaseLock(events);
         var service = new TaskbarRecoveryService(

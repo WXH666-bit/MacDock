@@ -34,7 +34,7 @@ public static class ProcessLauncher
         // URI 协议（http/https、calculator: 等）：交给系统协议处理器，不做重复检测
         if (Uri.TryCreate(path, UriKind.Absolute, out var uri) && !uri.IsFile)
         {
-            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+            StartDetached(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
             return;
         }
 
@@ -43,7 +43,7 @@ public static class ProcessLauncher
         // explorer.exe 特殊处理：始终打开新窗口（explorer 进程始终存在）
         if (string.Equals(exeName, "explorer", StringComparison.OrdinalIgnoreCase))
         {
-            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            StartDetached(new ProcessStartInfo(path) { UseShellExecute = true });
             return;
         }
 
@@ -64,7 +64,7 @@ public static class ProcessLauncher
             throw new FileNotFoundException($"启动目标不存在，且未匹配到商店应用：{path}");
         }
 
-        Process.Start(new ProcessStartInfo
+        StartDetached(new ProcessStartInfo
         {
             FileName = path,
             Arguments = item.Arguments ?? string.Empty,
@@ -86,28 +86,38 @@ public static class ProcessLauncher
             return false;
         }
 
-        foreach (var process in processes)
+        try
         {
-            try
+            foreach (var process in processes)
             {
-                var handle = process.MainWindowHandle;
-                if (handle == IntPtr.Zero)
-                    continue;
+                try
+                {
+                    var handle = process.MainWindowHandle;
+                    if (handle == IntPtr.Zero)
+                        continue;
 
-                ForceToForeground(handle);
-                return true;
+                    ForceToForeground(handle);
+                    return true;
+                }
+                catch
+                {
+                    // 进程可能在枚举间隙退出，继续找下一个实例
+                }
             }
-            catch
-            {
-                // 进程可能在枚举间隙退出，继续找下一个实例
-            }
-            finally
-            {
+        }
+        finally
+        {
+            // 即使提前找到目标，也要释放数组里尚未遍历的 Process 句柄。
+            foreach (var process in processes)
                 process.Dispose();
-            }
         }
 
         return false;
+    }
+
+    private static void StartDetached(ProcessStartInfo startInfo)
+    {
+        using var process = Process.Start(startInfo);
     }
 
     /// <summary>
@@ -132,18 +142,25 @@ public static class ProcessLauncher
         bool attachForeground = foregroundThread != 0 && foregroundThread != currentThread;
         bool attachTarget = targetThread != 0 && targetThread != currentThread && targetThread != foregroundThread;
 
-        if (attachForeground)
-            NativeMethods.AttachThreadInput(currentThread, foregroundThread, true);
-        if (attachTarget)
-            NativeMethods.AttachThreadInput(currentThread, targetThread, true);
+        var foregroundAttached = false;
+        var targetAttached = false;
+        try
+        {
+            foregroundAttached = attachForeground
+                && NativeMethods.AttachThreadInput(currentThread, foregroundThread, true);
+            targetAttached = attachTarget
+                && NativeMethods.AttachThreadInput(currentThread, targetThread, true);
 
-        NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
-        NativeMethods.BringWindowToTop(hwnd);
-        NativeMethods.SetForegroundWindow(hwnd);
-
-        if (attachTarget)
-            NativeMethods.AttachThreadInput(currentThread, targetThread, false);
-        if (attachForeground)
-            NativeMethods.AttachThreadInput(currentThread, foregroundThread, false);
+            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+            NativeMethods.BringWindowToTop(hwnd);
+            NativeMethods.SetForegroundWindow(hwnd);
+        }
+        finally
+        {
+            if (targetAttached)
+                NativeMethods.AttachThreadInput(currentThread, targetThread, false);
+            if (foregroundAttached)
+                NativeMethods.AttachThreadInput(currentThread, foregroundThread, false);
+        }
     }
 }
