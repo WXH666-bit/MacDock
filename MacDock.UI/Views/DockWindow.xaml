@@ -50,7 +50,8 @@
             </Canvas>
 
             <!-- 近透明底色保证空隙可命中（拖放/悬停），视觉上不可见 -->
-            <ItemsControl ItemsSource="{Binding Items}"
+            <ItemsControl x:Name="DockItems"
+                          ItemsSource="{Binding Items}"
                           Background="#01000000"
                           AllowDrop="True"
                           DragOver="OnDragOver"

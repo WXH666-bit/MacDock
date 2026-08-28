@@ -3,10 +3,16 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="MacDock 设置"
         Icon="{StaticResource MacDockLogo}"
-        Width="390" Height="300"
+        Width="410" Height="430"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        Background="White">
+        Background="{DynamicResource GlassSurfaceStrongBrush}"
+        Foreground="{DynamicResource AppTextPrimaryBrush}">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+    </Window.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
     <StackPanel Margin="20">
         <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
             <Image Source="{StaticResource MacDockLogo}"
@@ -19,7 +25,8 @@
                        VerticalAlignment="Center"/>
         </StackPanel>
         <CheckBox IsChecked="{Binding IsAutoStart}" Content="开机自启动"/>
-        <TextBlock Margin="0,8,0,12" Text="开机时自动运行 MacDock。" Foreground="Gray" FontSize="12"/>
+        <TextBlock Margin="0,8,0,12" Text="开机时自动运行 MacDock。"
+                   Foreground="{DynamicResource AppTextSecondaryBrush}" FontSize="12"/>
         <Separator Margin="0,0,0,12"/>
         <CheckBox Content="隐藏 Windows 任务栏"
                   IsChecked="{Binding HideWindowsTaskbar, Mode=OneWay}"
@@ -29,12 +36,49 @@
         <TextBlock Margin="0,8,0,0"
                    Text="默认关闭；仅处理主显示器任务栏，并由 watchdog 在异常退出时负责恢复。"
                    TextWrapping="Wrap"
-                   Foreground="Gray"
+                   Foreground="{DynamicResource AppTextSecondaryBrush}"
                    FontSize="12"/>
         <TextBlock Margin="0,8,0,0"
                    Text="{Binding TaskbarError}"
                    TextWrapping="Wrap"
-                   Foreground="IndianRed"
+                   Foreground="{DynamicResource ErrorBrush}"
                    FontSize="12"/>
+        <Separator Margin="0,16,0,12"/>
+        <TextBlock Text="实验性 Shell 功能"
+                   FontWeight="SemiBold"
+                   Margin="0,0,0,10"/>
+        <CheckBox Content="在顶部菜单栏显示系统托盘图标"
+                  IsChecked="{Binding TrayTakeover, Mode=OneWay}"
+                  IsEnabled="{Binding CanToggleTrayTakeover}"
+                  Command="{Binding SetTrayTakeoverCommand}"
+                  CommandParameter="{Binding IsChecked, RelativeSource={RelativeSource Self}}"/>
+        <TextBlock Margin="0,8,0,0"
+                   Text="默认关闭；只保存偏好，完全退出并重新启动 MacDock 后生效。遇到无法安全识别的 Explorer 布局会自动停用。"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource AppTextSecondaryBrush}"
+                   FontSize="12"/>
+        <TextBlock Margin="0,8,0,0"
+                   Text="设置已保存，完全退出并重新启动 MacDock 后生效。"
+                   Visibility="{Binding IsTrayTakeoverRestartRequired, Converter={StaticResource BoolToVisibility}}"
+                   TextWrapping="Wrap"
+                   Foreground="SeaGreen"
+                   FontSize="12"/>
+        <TextBlock Margin="0,8,0,0"
+                   Text="{Binding TrayTakeoverError}"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource ErrorBrush}"
+                   FontSize="12"/>
+        <Border Margin="0,14,0,0"
+                Padding="10"
+                CornerRadius="6"
+                Background="{DynamicResource WarningSurfaceBrush}"
+                BorderBrush="{DynamicResource WarningBorderBrush}"
+                BorderThickness="1">
+            <TextBlock Text="顶部工作区预留（AppBar）安全验证未通过，当前保持锁定关闭。"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource WarningTextBrush}"
+                       FontSize="12"/>
+        </Border>
     </StackPanel>
+    </ScrollViewer>
 </Window>

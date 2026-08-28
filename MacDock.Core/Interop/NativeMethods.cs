@@ -45,6 +45,11 @@ internal static class NativeMethods
     [DllImport("dwmapi.dll")]
     public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
+    /// <summary>查询桌面窗口管理器合成是否可用；M4 不可用时直接使用系统最小化。</summary>
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmIsCompositionEnabled(
+        [MarshalAs(UnmanagedType.Bool)] out bool pfEnabled);
+
     // ---- 窗口合成属性（Accent 亚克力，Win10 1803+ / Win11 全系） ----
     /// <summary>WCA_ACCENT_POLICY。</summary>
     public const int WCA_ACCENT_POLICY = 19;
@@ -169,6 +174,65 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    // ---- 屏幕位图快照（M4 最小化动画） ----
+    public const uint SRCCOPY = 0x00CC0020;
+    public const uint CAPTUREBLT = 0x40000000;
+    public const int COLORONCOLOR = 3;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int cx, int cy);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    public static extern IntPtr SelectObject(IntPtr hdc, IntPtr h);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool BitBlt(
+        IntPtr hdc,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        IntPtr hdcSrc,
+        int x1,
+        int y1,
+        uint rop);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool StretchBlt(
+        IntPtr hdcDest,
+        int xDest,
+        int yDest,
+        int widthDest,
+        int heightDest,
+        IntPtr hdcSrc,
+        int xSrc,
+        int ySrc,
+        int widthSrc,
+        int heightSrc,
+        uint rop);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    public static extern int SetStretchBltMode(IntPtr hdc, int mode);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DeleteObject(IntPtr ho);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DeleteDC(IntPtr hdc);
+
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
@@ -198,9 +262,9 @@ internal static class NativeMethods
 
     /// <summary>挂钩前台窗口变化。</summary>
     public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
-    /// <summary>挂钩窗口最小化。</summary>
+    /// <summary>窗口从最小化状态恢复完成。</summary>
     public const uint EVENT_SYSTEM_MINIMIZEEND = 0x0017;
-    /// <summary>挂钩窗口还原/显示。</summary>
+    /// <summary>窗口开始最小化。</summary>
     public const uint EVENT_SYSTEM_MINIMIZESTART = 0x0016;
     /// <summary>挂钩对象显示。</summary>
     public const uint EVENT_OBJECT_SHOW = 0x8002;

@@ -3,6 +3,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using MacDock.Core.Services;
+using MacDock.UI.Services;
 
 namespace MacDock.UI.Views;
 
@@ -12,13 +13,18 @@ namespace MacDock.UI.Views;
 /// </summary>
 public partial class DockBackdropWindow : Window
 {
-    public DockBackdropWindow()
+    private readonly ThemeManager _themeManager;
+
+    public DockBackdropWindow(ThemeManager themeManager)
     {
+        _themeManager = themeManager ?? throw new ArgumentNullException(nameof(themeManager));
         InitializeComponent();
 
         // AllowsTransparency 必须在句柄创建前设置，降级判断放构造函数
         if (!SystemBackdropService.IsAcrylicSupported)
             ApplyLegacyFallback();
+
+        _themeManager.ThemeChanged += OnThemeChanged;
     }
 
     /// <summary>窗口句柄（用于 Z 序编排；未创建时为 IntPtr.Zero）。</summary>
@@ -35,8 +41,7 @@ public partial class DockBackdropWindow : Window
         if (SystemBackdropService.IsAcrylicSupported)
         {
             SystemBackdropService.ApplyRoundedCorners(hwnd);
-            // 中性深灰约 33% 不透明：保住毛玻璃通透感，同时压暗背景保证图标可读
-            SystemBackdropService.ApplyAccentAcrylic(hwnd, 0x55202024);
+            ApplyAcrylicTheme(hwnd);
         }
     }
 
@@ -45,16 +50,9 @@ public partial class DockBackdropWindow : Window
     {
         AllowsTransparency = true;
         GlassBorder.Margin = new Thickness(24);
-        GlassBorder.Background = new LinearGradientBrush
-        {
-            StartPoint = new Point(0, 0),
-            EndPoint = new Point(0, 1),
-            GradientStops =
-            {
-                new GradientStop(Color.FromArgb(0x9E, 0x2C, 0x2C, 0x30), 0),
-                new GradientStop(Color.FromArgb(0x8A, 0x22, 0x22, 0x26), 1),
-            },
-        };
+        GlassBorder.SetResourceReference(
+            System.Windows.Controls.Border.BackgroundProperty,
+            "DockBackgroundBrush");
         GlassBorder.Effect = new DropShadowEffect
         {
             BlurRadius = 20,
@@ -62,5 +60,28 @@ public partial class DockBackdropWindow : Window
             Opacity = 0.30,
             Color = Colors.Black,
         };
+    }
+
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        if (!SystemBackdropService.IsAcrylicSupported)
+            return;
+
+        var hwnd = Handle;
+        if (hwnd != IntPtr.Zero)
+            ApplyAcrylicTheme(hwnd);
+    }
+
+    private void ApplyAcrylicTheme(IntPtr hwnd)
+    {
+        // Accent 颜色为 ABGR。仅修改 MacDock 自己的背景窗口，不触碰系统主题。
+        var tint = _themeManager.IsDark ? 0x55202024u : 0x88F7F2F2u;
+        SystemBackdropService.ApplyAccentAcrylic(hwnd, tint);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _themeManager.ThemeChanged -= OnThemeChanged;
+        base.OnClosed(e);
     }
 }

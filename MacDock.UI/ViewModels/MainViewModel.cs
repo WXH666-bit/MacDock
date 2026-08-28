@@ -99,6 +99,15 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 按运行状态的同一套规则查找 Dock 项。调用方应在 UI 线程使用，
+    /// 供 M4 把最小化窗口映射到目标图标。
+    /// </summary>
+    public DockItemViewModel? FindItemForProcess(string exeName)
+        => string.IsNullOrWhiteSpace(exeName)
+            ? null
+            : Items.FirstOrDefault(item => Matches(item.Model, exeName));
+
+    /// <summary>
     /// 判断 WindowMonitor 上报的进程名是否属于该 Dock 项。
     /// 除路径 exe 名与 StoreAppName 全等外，还处理 PFN 形式的商店应用
     /// （Microsoft.WindowsCalculator_8wekyb3d8bbwe → Microsoft.WindowsCalculator → WindowsCalculator）。

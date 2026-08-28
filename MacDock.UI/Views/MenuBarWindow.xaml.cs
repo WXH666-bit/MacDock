@@ -4,6 +4,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using MacDock.Core.Services;
 using MacDock.Core.Services.Taskbar;
+using MacDock.UI.Services;
 using MacDock.UI.ViewModels;
 using NLog;
 
@@ -27,12 +28,15 @@ public partial class MenuBarWindow : Window
     private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
     private readonly MenuBarViewModel _viewModel;
+    private readonly ThemeManager _themeManager;
     private readonly AppBarService _appBar = new();
     private readonly bool _reserveWorkArea;
     private readonly TrayIconReader _trayReader;
     private readonly TrayAreaViewModel _trayVm;
     private readonly MenuBarFlyoutWindow? _flyout;
     private AboutWindow? _aboutWindow;
+    private ControlCenterWindow? _controlCenter;
+    private LaunchpadWindow? _launchpadWindow;
     private HwndSource? _hwndSource;
     private bool _hiddenForFullscreen;
     private bool _flyoutIsVolume;
@@ -40,9 +44,14 @@ public partial class MenuBarWindow : Window
     /// <param name="viewModel">菜单栏视图模型。</param>
     /// <param name="reserveWorkArea">是否注册 AppBar 保留工作区（设置项 MenuBarReserveWorkArea）。</param>
     /// <param name="trayTakeover">是否接管任务栏托盘（设置项 TrayTakeover）。</param>
-    public MenuBarWindow(MenuBarViewModel viewModel, bool reserveWorkArea = false, bool trayTakeover = false)
+    public MenuBarWindow(
+        MenuBarViewModel viewModel,
+        ThemeManager themeManager,
+        bool reserveWorkArea = false,
+        bool trayTakeover = false)
     {
         _viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        _themeManager = themeManager ?? throw new ArgumentNullException(nameof(themeManager));
         _reserveWorkArea = reserveWorkArea;
 
         InitializeComponent();
@@ -80,16 +89,7 @@ public partial class MenuBarWindow : Window
         if (!SystemBackdropService.IsAccentAcrylicSupported)
         {
             AllowsTransparency = true;
-            GlassLayer.Background = new LinearGradientBrush
-            {
-                StartPoint = new Point(0, 0),
-                EndPoint = new Point(0, 1),
-                GradientStops =
-                {
-                    new GradientStop(Color.FromArgb(0xE0, 0x28, 0x28, 0x2C), 0),
-                    new GradientStop(Color.FromArgb(0xCC, 0x1E, 0x1E, 0x22), 1),
-                },
-            };
+            ApplyFallbackTheme();
         }
 
         // Loaded 后再启动托盘首读：窗口布局/Dispatcher 已就绪，构造阶段不触碰 explorer。
@@ -97,6 +97,7 @@ public partial class MenuBarWindow : Window
 
         // 分辨率/缩放变化后重新贴顶（多显示器扩展点：M2.1 只做主屏）
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        _themeManager.ThemeChanged += OnThemeChanged;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -117,8 +118,7 @@ public partial class MenuBarWindow : Window
 
         if (SystemBackdropService.IsAccentAcrylicSupported)
         {
-            // 与 Dock 玻璃条协调的半透明深灰
-            SystemBackdropService.ApplyAccentAcrylic(hwnd, 0x66202024);
+            ApplyAcrylicTheme(hwnd);
         }
 
         // 句柄创建后、窗口可见前先落位一次，防止首帧出现在默认位置造成闪跳
@@ -264,6 +264,46 @@ public partial class MenuBarWindow : Window
             _appBar.UpdatePosition(GetBarHeightPx());
     }
 
+    private void OnThemeChanged(object? sender, EventArgs e)
+    {
+        if (!SystemBackdropService.IsAccentAcrylicSupported)
+        {
+            ApplyFallbackTheme();
+            return;
+        }
+
+        var hwnd = new WindowInteropHelper(this).Handle;
+        if (hwnd != IntPtr.Zero)
+            ApplyAcrylicTheme(hwnd);
+    }
+
+    private void ApplyAcrylicTheme(IntPtr hwnd)
+    {
+        // Accent 颜色为 ABGR，只更新 MacDock 自己的菜单栏窗口。
+        var tint = _themeManager.IsDark ? 0x66202024u : 0xAAF7F2F2u;
+        SystemBackdropService.ApplyAccentAcrylic(hwnd, tint);
+    }
+
+    private void ApplyFallbackTheme()
+    {
+        var top = _themeManager.IsDark
+            ? Color.FromArgb(0xE0, 0x28, 0x28, 0x2C)
+            : Color.FromArgb(0xE8, 0xF7, 0xF8, 0xFC);
+        var bottom = _themeManager.IsDark
+            ? Color.FromArgb(0xCC, 0x1E, 0x1E, 0x22)
+            : Color.FromArgb(0xD8, 0xEA, 0xEE, 0xF6);
+        GlassLayer.Background = new LinearGradientBrush
+        {
+            StartPoint = new Point(0, 0),
+            EndPoint = new Point(0, 1),
+            GradientStops =
+            {
+                new GradientStop(top, 0),
+                new GradientStop(bottom, 1),
+            },
+        };
+    }
+
     /// <summary>Logo 点击：弹出「关于本机」（单例，重复点击激活已有窗口）。</summary>
     private void OnLogoClick(object sender, MouseButtonEventArgs e)
     {
@@ -283,6 +323,88 @@ public partial class MenuBarWindow : Window
         catch (Exception exception)
         {
             Logger.Error(exception, "打开「关于本机」失败");
+        }
+    }
+
+    /// <summary>M5 控制中心按钮：重复点击收起，首次点击创建单例窗口。</summary>
+    private void OnControlCenterClick(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            if (_controlCenter is { IsOpen: true })
+            {
+                _controlCenter.Collapse();
+                return;
+            }
+
+            if (_flyout is { IsOpen: true })
+                _flyout.Collapse();
+            OverflowPopup.IsOpen = false;
+
+            if (_controlCenter is null)
+            {
+                var viewModel = new ControlCenterViewModel(_viewModel, _themeManager);
+                try
+                {
+                    _controlCenter = new ControlCenterWindow(viewModel) { Owner = this };
+                }
+                catch
+                {
+                    viewModel.Dispose();
+                    throw;
+                }
+            }
+
+            _controlCenter.ShowBelowAnchor(ComputeAnchor(ControlCenterButton));
+        }
+        catch (Exception exception)
+        {
+            Logger.Error(exception, "打开控制中心失败");
+        }
+        finally
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>M5 启动台按钮：全屏展示当前用户可启动的开始菜单和商店应用。</summary>
+    private void OnLaunchpadClick(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            if (_launchpadWindow is not null)
+            {
+                _launchpadWindow.Activate();
+                return;
+            }
+
+            if (_flyout is { IsOpen: true })
+                _flyout.Collapse();
+            _controlCenter?.Collapse();
+            OverflowPopup.IsOpen = false;
+
+            var viewModel = new LaunchpadViewModel();
+            try
+            {
+                var launchpad = new LaunchpadWindow(viewModel) { Owner = this };
+                _launchpadWindow = launchpad;
+                launchpad.Closed += (_, _) => _launchpadWindow = null;
+                launchpad.Show();
+                launchpad.Activate();
+            }
+            catch
+            {
+                viewModel.Dispose();
+                throw;
+            }
+        }
+        catch (Exception exception)
+        {
+            Logger.Error(exception, "打开启动台失败");
+        }
+        finally
+        {
+            e.Handled = true;
         }
     }
 
@@ -373,6 +495,7 @@ public partial class MenuBarWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        _themeManager.ThemeChanged -= OnThemeChanged;
         _viewModel.ControlsRefreshed -= OnControlsRefreshed;
         _hwndSource?.RemoveHook(WndProc);
         _hwndSource = null;
@@ -380,6 +503,10 @@ public partial class MenuBarWindow : Window
         _trayVm.Dispose();
         _trayReader.Dispose();
         _flyout?.Close();
+        _controlCenter?.Close();
+        _controlCenter = null;
+        _launchpadWindow?.Close();
+        _launchpadWindow = null;
         _aboutWindow?.Close();
         _aboutWindow = null;
         _viewModel.Dispose();

@@ -64,6 +64,12 @@ public sealed class WindowMonitor : IDisposable
     /// </summary>
     public event Action<string, string?>? ForegroundAppChanged;
 
+    /// <summary>
+    /// 普通顶层窗口开始最小化时触发（窗口句柄、进程名）。订阅方只能做
+    /// 可失败的视觉增强，不得延迟或取消系统原生最小化。
+    /// </summary>
+    public event Action<IntPtr, string>? WindowMinimizeStarted;
+
     /// <summary>MacDock 自身进程名，前台上报时排除。</summary>
     private static readonly string SelfProcessName = ResolveSelfProcessName();
 
@@ -104,6 +110,7 @@ public sealed class WindowMonitor : IDisposable
         uint[] events =
         {
             NativeMethods.EVENT_SYSTEM_FOREGROUND,
+            NativeMethods.EVENT_SYSTEM_MINIMIZESTART,
             NativeMethods.EVENT_OBJECT_SHOW,
             NativeMethods.EVENT_OBJECT_DESTROY,
         };
@@ -159,6 +166,10 @@ public sealed class WindowMonitor : IDisposable
                         RegisterWindow(hWnd);
                     break;
 
+                case NativeMethods.EVENT_SYSTEM_MINIMIZESTART:
+                    ReportMinimizeStarted(hWnd);
+                    break;
+
                 case NativeMethods.EVENT_OBJECT_DESTROY:
                     // 销毁时窗口已不可见，不能走 ShouldIgnore（它以可见性为前提）
                     UnregisterWindow(hWnd);
@@ -166,6 +177,26 @@ public sealed class WindowMonitor : IDisposable
             }
         }
         catch { }
+    }
+
+    private void ReportMinimizeStarted(IntPtr hWnd)
+    {
+        if (ShouldIgnore(hWnd))
+            return;
+
+        NativeMethods.GetWindowThreadProcessId(hWnd, out var pid);
+        if (pid == 0)
+            return;
+
+        var exeName = ResolveExeName(pid);
+        if (string.IsNullOrWhiteSpace(exeName)
+            || ExcludedProcesses.Contains(exeName)
+            || string.Equals(exeName, SelfProcessName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        WindowMinimizeStarted?.Invoke(hWnd, exeName);
     }
 
     /// <summary>判断窗口是否应被忽略（系统窗口/工具窗口/无标题）。</summary>

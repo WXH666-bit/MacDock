@@ -24,6 +24,9 @@ public static class AppPaths
     /// <summary>应用设置持久化文件路径。</summary>
     public static string SettingsFile => Path.Combine(AppDataDirectory, "settings.json");
 
+    /// <summary>主题偏好持久化文件路径。</summary>
+    public static string ThemeSettingsFile => Path.Combine(AppDataDirectory, "theme.json");
+
     /// <summary>任务栏租约 journal 文件路径。</summary>
     public static string TaskbarLeaseFile => Path.Combine(AppDataDirectory, "taskbar-lease.json");
 

@@ -6,6 +6,178 @@ namespace MacDock.Tests;
 public sealed class TaskbarCoordinatorTests
 {
     [Fact]
+    public async Task TrayPreference_SavePreservesOtherSettings()
+    {
+        var harness = CoordinatorHarness.Create(
+            persistedTaskbarSetting: true,
+            menuBarReserveWorkArea: true);
+
+        try
+        {
+            var result = await harness.Coordinator
+                .SaveTrayTakeoverPreferenceAsync(true);
+            var saved = harness.Settings.Load();
+
+            Assert.True(result.Succeeded);
+            Assert.True(result.Enabled);
+            Assert.True(saved.TrayTakeover);
+            Assert.True(saved.HideWindowsTaskbar);
+            Assert.True(saved.MenuBarReserveWorkArea);
+            Assert.Equal(0, harness.Lease.AcquireCalls);
+            Assert.Equal(0, harness.Lease.ReleaseCalls);
+            Assert.Equal(0, harness.Lease.ReconcileCalls);
+        }
+        finally
+        {
+            await harness.Coordinator.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task TrayPreference_ThenTaskbarEnablePreservesBothPreferences()
+    {
+        var harness = CoordinatorHarness.Create();
+
+        try
+        {
+            var tray = await harness.Coordinator
+                .SaveTrayTakeoverPreferenceAsync(true);
+            var taskbar = await harness.Coordinator.SetEnabledAsync(true);
+            var saved = harness.Settings.Load();
+
+            Assert.True(tray.Succeeded);
+            Assert.True(taskbar.Succeeded);
+            Assert.True(saved.TrayTakeover);
+            Assert.True(saved.HideWindowsTaskbar);
+            Assert.Equal(1, harness.Lease.AcquireCalls);
+        }
+        finally
+        {
+            await harness.Coordinator.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task TrayPreference_TaskbarPersistencePendingRejectsAdditionalWrite()
+    {
+        var harness = CoordinatorHarness.Create(releaseResult: false);
+        harness.Settings.SaveException = new IOException("fake taskbar save failure");
+
+        try
+        {
+            var taskbar = await harness.Coordinator.SetEnabledAsync(true);
+            Assert.False(taskbar.Succeeded);
+            Assert.True(taskbar.Enabled);
+
+            harness.Settings.SaveException = null;
+            var savesBeforeTray = harness.Settings.SaveCalls;
+            var tray = await harness.Coordinator
+                .SaveTrayTakeoverPreferenceAsync(true);
+
+            Assert.False(tray.Succeeded);
+            Assert.Contains("pending", tray.Error, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(savesBeforeTray, harness.Settings.SaveCalls);
+            Assert.False(harness.Settings.Load().TrayTakeover);
+        }
+        finally
+        {
+            await harness.Coordinator.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task TrayPreference_DisposedCoordinatorDoesNotSave()
+    {
+        var harness = CoordinatorHarness.Create();
+        await harness.Coordinator.DisposeAsync();
+
+        var result = await harness.Coordinator
+            .SaveTrayTakeoverPreferenceAsync(true);
+
+        Assert.False(result.Succeeded);
+        Assert.False(result.Enabled);
+        Assert.Contains("shutting down", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, harness.Settings.SaveCalls);
+    }
+
+    [Fact]
+    public async Task TrayPreference_SaveFailureRollsBackInMemoryPreference()
+    {
+        var harness = CoordinatorHarness.Create();
+        harness.Settings.SaveException = new IOException("fake preference save failure");
+
+        try
+        {
+            var failed = await harness.Coordinator
+                .SaveTrayTakeoverPreferenceAsync(true);
+
+            Assert.False(failed.Succeeded);
+            Assert.False(failed.Enabled);
+            Assert.Contains("fake preference save failure", failed.Error);
+
+            harness.Settings.SaveException = null;
+            var unchanged = await harness.Coordinator
+                .SaveTrayTakeoverPreferenceAsync(false);
+
+            Assert.True(unchanged.Succeeded);
+            Assert.False(unchanged.Enabled);
+            Assert.Equal(1, harness.Settings.SaveCalls);
+            Assert.False(harness.Settings.Load().TrayTakeover);
+        }
+        finally
+        {
+            await harness.Coordinator.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task TrayPreference_UnavailableStartupBlocksNewOptIn()
+    {
+        var harness = CoordinatorHarness.Create(
+            changesAllowed: false,
+            unavailableReason: "startup recovery was not verified");
+
+        try
+        {
+            var result = await harness.Coordinator
+                .SaveTrayTakeoverPreferenceAsync(true);
+
+            Assert.False(result.Succeeded);
+            Assert.False(result.Enabled);
+            Assert.Contains("startup recovery", result.Error);
+            Assert.Equal(0, harness.Settings.SaveCalls);
+        }
+        finally
+        {
+            await harness.Coordinator.DisposeAsync();
+        }
+    }
+
+    [Fact]
+    public async Task TrayPreference_UnavailableStartupStillAllowsOptOut()
+    {
+        var harness = CoordinatorHarness.Create(
+            changesAllowed: false,
+            unavailableReason: "startup recovery was not verified",
+            persistedTrayTakeover: true);
+
+        try
+        {
+            var result = await harness.Coordinator
+                .SaveTrayTakeoverPreferenceAsync(false);
+
+            Assert.True(result.Succeeded);
+            Assert.False(result.Enabled);
+            Assert.False(harness.Settings.Load().TrayTakeover);
+            Assert.Equal(1, harness.Settings.SaveCalls);
+        }
+        finally
+        {
+            await harness.Coordinator.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task Enable_WhenAcquireFails_DoesNotPersistTrue()
     {
         var harness = CoordinatorHarness.Create(acquireResult: false);

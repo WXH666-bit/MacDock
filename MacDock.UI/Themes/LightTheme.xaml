@@ -3,4 +3,23 @@
     <!-- 浅色主题：Dock 毛玻璃背景（半透明） -->
     <SolidColorBrush x:Key="DockBackgroundBrush" Color="#B3F2F2F7"/>
     <SolidColorBrush x:Key="DockBorderBrush" Color="#40FFFFFF"/>
+
+    <!-- M5 通用界面令牌：冷白玻璃 + MacDock 蓝紫柔光。 -->
+    <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="#FF152033"/>
+    <SolidColorBrush x:Key="AppTextSecondaryBrush" Color="#A63D4A60"/>
+    <SolidColorBrush x:Key="GlassSurfaceBrush" Color="#D9F6F8FC"/>
+    <SolidColorBrush x:Key="GlassSurfaceStrongBrush" Color="#F2FFFFFF"/>
+    <SolidColorBrush x:Key="GlassBorderBrush" Color="#80FFFFFF"/>
+    <SolidColorBrush x:Key="ControlFillBrush" Color="#B3E8ECF5"/>
+    <SolidColorBrush x:Key="ControlHoverBrush" Color="#D9DCE4F2"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="#FF486BEA"/>
+    <SolidColorBrush x:Key="AccentSoftBrush" Color="#33486BEA"/>
+    <SolidColorBrush x:Key="LaunchpadOverlayBrush" Color="#B8E9EDF6"/>
+    <SolidColorBrush x:Key="ErrorBrush" Color="#FFC24155"/>
+    <SolidColorBrush x:Key="MenuBarForegroundBrush" Color="#E6152033"/>
+    <SolidColorBrush x:Key="MenuBarSecondaryBrush" Color="#B3152033"/>
+    <SolidColorBrush x:Key="MenuBarHairlineBrush" Color="#24152033"/>
+    <SolidColorBrush x:Key="WarningSurfaceBrush" Color="#FFFFF7ED"/>
+    <SolidColorBrush x:Key="WarningBorderBrush" Color="#FFFED7AA"/>
+    <SolidColorBrush x:Key="WarningTextBrush" Color="#FF9A3412"/>
 </ResourceDictionary>

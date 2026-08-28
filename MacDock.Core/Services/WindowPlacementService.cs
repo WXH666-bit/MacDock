@@ -66,6 +66,27 @@ public static class WindowPlacementService
             NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
     }
 
+    /// <summary>
+    /// 判断目标窗口是否位于主显示器。M4 当前只为主屏 Dock 制作飞行动画，
+    /// 其他显示器安全降级为 Windows 原生最小化。
+    /// </summary>
+    public static bool IsOnPrimaryMonitor(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+            return false;
+
+        var target = NativeMethods.MonitorFromWindow(
+            hwnd,
+            NativeMethods.MONITOR_DEFAULTTONULL);
+        if (target == IntPtr.Zero)
+            return false;
+
+        var primary = NativeMethods.MonitorFromPoint(
+            new POINT { x = 0, y = 0 },
+            NativeMethods.MONITOR_DEFAULTTOPRIMARY);
+        return primary != IntPtr.Zero && target == primary;
+    }
+
     /// <summary>取主显示器完整边界（物理像素）。</summary>
     private static bool TryGetPrimaryMonitorBounds(out RECT bounds)
     {

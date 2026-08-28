@@ -215,22 +215,119 @@ public sealed class SettingsViewModelTests
         Assert.Equal(1, autoStart.WriteCalls);
     }
 
+    [Fact]
+    public async Task TrayTakeover_SaveSuccessUpdatesPreferenceAndRequiresRestart()
+    {
+        var calls = new List<bool>();
+        var viewModel = Create(
+            saveTrayTakeoverPreference: (enabled, _) =>
+            {
+                calls.Add(enabled);
+                return Task.FromResult(
+                    new ShellPreferenceUpdateResult(true, enabled, null));
+            });
+
+        await viewModel.SetTrayTakeoverCommand.ExecuteAsync(true);
+
+        Assert.True(viewModel.TrayTakeover);
+        Assert.True(viewModel.IsTrayTakeoverRestartRequired);
+        Assert.Null(viewModel.TrayTakeoverError);
+        Assert.False(viewModel.IsTrayTakeoverBusy);
+        Assert.Equal([true], calls);
+
+        await viewModel.SetTrayTakeoverCommand.ExecuteAsync(false);
+
+        Assert.False(viewModel.TrayTakeover);
+        Assert.False(viewModel.IsTrayTakeoverRestartRequired);
+        Assert.Equal([true, false], calls);
+    }
+
+    [Fact]
+    public async Task TrayTakeover_SaveFailureRollsBackAndSurfacesError()
+    {
+        var viewModel = Create(
+            saveTrayTakeoverPreference: static (_, _) => Task.FromResult(
+                new ShellPreferenceUpdateResult(
+                    false,
+                    false,
+                    "fake tray preference failure")));
+
+        await viewModel.SetTrayTakeoverCommand.ExecuteAsync(true);
+
+        Assert.False(viewModel.TrayTakeover);
+        Assert.False(viewModel.IsTrayTakeoverRestartRequired);
+        Assert.Contains("fake tray preference failure", viewModel.TrayTakeoverError);
+        Assert.False(viewModel.IsTrayTakeoverBusy);
+    }
+
+    [Fact]
+    public async Task TrayTakeover_UnavailableStartupBlocksNewOptIn()
+    {
+        var calls = 0;
+        var viewModel = Create(
+            changesAllowed: false,
+            saveTrayTakeoverPreference: (_, _) =>
+            {
+                calls++;
+                return Task.FromResult(
+                    new ShellPreferenceUpdateResult(true, true, null));
+            });
+
+        Assert.False(viewModel.CanToggleTrayTakeover);
+
+        await viewModel.SetTrayTakeoverCommand.ExecuteAsync(true);
+
+        Assert.False(viewModel.TrayTakeover);
+        Assert.NotNull(viewModel.TrayTakeoverError);
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public async Task TrayTakeover_UnavailableStartupStillAllowsOptOut()
+    {
+        var viewModel = Create(
+            initialTrayTakeover: true,
+            changesAllowed: false,
+            saveTrayTakeoverPreference: static (enabled, _) => Task.FromResult(
+                new ShellPreferenceUpdateResult(true, enabled, null)));
+
+        Assert.True(viewModel.TrayTakeover);
+        Assert.True(viewModel.CanToggleTrayTakeover);
+
+        await viewModel.SetTrayTakeoverCommand.ExecuteAsync(false);
+
+        Assert.False(viewModel.TrayTakeover);
+        Assert.True(viewModel.IsTrayTakeoverRestartRequired);
+        Assert.False(viewModel.CanToggleTrayTakeover);
+        Assert.Null(viewModel.TrayTakeoverError);
+    }
+
     private static MacDock.UI.ViewModels.SettingsViewModel Create(
         bool initialTaskbarEnabled = false,
+        bool initialTrayTakeover = false,
         bool changesAllowed = true,
         string? taskbarError = null,
         FakeAutoStartSettings? autoStart = null,
-        Func<bool, CancellationToken, Task<TaskbarToggleResult>>? setTaskbarEnabled = null)
+        Func<bool, CancellationToken, Task<TaskbarToggleResult>>? setTaskbarEnabled = null,
+        Func<bool, CancellationToken, Task<ShellPreferenceUpdateResult>>?
+            saveTrayTakeoverPreference = null)
     {
         autoStart ??= new FakeAutoStartSettings();
         setTaskbarEnabled ??= static (_, _) => Task.FromResult(
             new TaskbarToggleResult(false, false, "test callback not configured"));
+        saveTrayTakeoverPreference ??= static (_, _) => Task.FromResult(
+            new ShellPreferenceUpdateResult(
+                false,
+                false,
+                "test callback not configured"));
 
         return new MacDock.UI.ViewModels.SettingsViewModel(
             initialTaskbarEnabled,
+            initialTrayTakeover,
             changesAllowed,
             taskbarError,
             setTaskbarEnabled,
+            saveTrayTakeoverPreference,
             autoStart.Read,
             autoStart.Write);
     }

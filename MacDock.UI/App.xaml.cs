@@ -4,8 +4,10 @@ using System.Windows.Threading;
 using H.NotifyIcon;
 using H.NotifyIcon.Core;
 using MacDock.Core;
+using MacDock.Core.Models;
 using MacDock.Core.Services;
 using MacDock.Core.Services.Taskbar;
+using MacDock.UI.Services;
 using MacDock.UI.ViewModels;
 using MacDock.UI.Views;
 using NLog;
@@ -30,6 +32,7 @@ public partial class App : Application
     private bool _persistedOptInApplied;
     private DockWindow? _dockWindow;
     private MenuBarWindow? _menuBarWindow;
+    private ThemeManager? _themeManager;
     private TaskbarCoordinator? _taskbarCoordinator;
     private TaskbarStartupResult? _startupResult;
     private readonly CancellationTokenSource _startupCancellation = new();
@@ -91,6 +94,22 @@ public partial class App : Application
         {
             AppPaths.EnsureDataDirectory();
 
+            var themeStore = new ThemeSettingsStore(AppPaths.ThemeSettingsFile);
+            ThemeSettings themeSettings;
+            try
+            {
+                themeSettings = await Task.Run(
+                        themeStore.Load,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // 损坏的 theme.json 原样保留供用户恢复；本次会话安全回退跟随系统。
+                Logger.Warn(exception, "读取主题偏好失败，本次会话回退为跟随系统");
+                themeSettings = new ThemeSettings();
+            }
+
             var settingsStore = new AppSettingsStore(AppPaths.SettingsFile);
             var journal = new TaskbarLeaseJournal(AppPaths.TaskbarLeaseFile);
             var leaseLock = new TaskbarLeaseFileLock(AppPaths.TaskbarLeaseLockFile);
@@ -132,6 +151,10 @@ public partial class App : Application
                     return;
 
                 _startupResult = startupResult;
+                _themeManager = new ThemeManager(
+                    themeStore,
+                    themeSettings,
+                    Dispatcher);
                 coordinator = new TaskbarCoordinator(
                     lease!,
                     settingsStore,
@@ -145,7 +168,8 @@ public partial class App : Application
                 dockWindow = new DockWindow(
                     mainViewModel,
                     classifier,
-                    CreateSettingsViewModel);
+                    CreateSettingsViewModel,
+                    _themeManager);
                 mainViewModel = null; // ownership transferred to DockWindow
 
                 _taskbarCoordinator = coordinator;
@@ -181,6 +205,7 @@ public partial class App : Application
 
                     _menuBarWindow = new MenuBarWindow(
                         new MenuBarViewModel(_dockWindow.WindowMonitor),
+                        _themeManager!,
                         reserveWorkArea: appBarRequested && EnableAppBarRuntime,
                         trayTakeover: shellIntegrationsAllowed
                             && startupResult.Settings.TrayTakeover);
@@ -264,6 +289,12 @@ public partial class App : Application
                 {
                     Logger.Error(disposeException, "启动失败后的 MainViewModel 清理失败");
                 }
+            }
+
+            if (!startupPublished && _themeManager is not null)
+            {
+                _themeManager.Dispose();
+                _themeManager = null;
             }
 
             if (coordinator is not null)
@@ -350,6 +381,7 @@ public partial class App : Application
 
         return new SettingsViewModel(
             initialTaskbarEnabled: coordinator?.IsEnabled ?? false,
+            initialTrayTakeover: startup?.Settings.TrayTakeover ?? false,
             changesAllowed: startup?.ChangesAllowed ?? false,
             taskbarError: coordinator?.LastError
                 ?? startup?.Error
@@ -360,6 +392,12 @@ public partial class App : Application
                     Enabled: false,
                     Error: "Taskbar coordinator is unavailable."))
                 : coordinator.SetEnabledAsync(enabled, cancellationToken),
+            saveTrayTakeoverPreference: (enabled, cancellationToken) => coordinator is null
+                ? Task.FromResult(new ShellPreferenceUpdateResult(
+                    Succeeded: false,
+                    Enabled: startup?.Settings.TrayTakeover ?? false,
+                    Error: "Settings coordinator is unavailable."))
+                : coordinator.SaveTrayTakeoverPreferenceAsync(enabled, cancellationToken),
             readAutoStart: AutoStartService.IsEnabled,
             writeAutoStart: AutoStartService.SetEnabled);
     }
@@ -619,6 +657,9 @@ public partial class App : Application
                     coordinator.LastError);
             }
         }
+
+        _themeManager?.Dispose();
+        _themeManager = null;
 
         if (_ownsSingleInstanceMutex && _singleInstanceMutex is not null)
         {

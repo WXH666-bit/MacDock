@@ -25,12 +25,5 @@
     <Border x:Name="GlassBorder"
             CornerRadius="13"
             BorderThickness="1"
-            BorderBrush="#3DFFFFFF">
-        <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                <GradientStop Color="#17FFFFFF" Offset="0"/>
-                <GradientStop Color="#0AFFFFFF" Offset="1"/>
-            </LinearGradientBrush>
-        </Border.Background>
-    </Border>
+            BorderBrush="{DynamicResource DockBorderBrush}"/>
 </Window>

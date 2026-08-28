@@ -1580,6 +1580,8 @@ internal sealed class FakeAppSettingsStore : IAppSettingsStore
         {
             SchemaVersion = settings.SchemaVersion,
             HideWindowsTaskbar = settings.HideWindowsTaskbar,
+            MenuBarReserveWorkArea = settings.MenuBarReserveWorkArea,
+            TrayTakeover = settings.TrayTakeover,
         };
 }
 
@@ -1640,12 +1642,16 @@ internal sealed class CoordinatorHarness
         bool releaseResult = true,
         bool changesAllowed = true,
         string? unavailableReason = null,
-        bool persistedTaskbarSetting = false)
+        bool persistedTaskbarSetting = false,
+        bool persistedTrayTakeover = false,
+        bool menuBarReserveWorkArea = false)
     {
         events ??= new List<string>();
         var initialSettings = new AppSettings
         {
             HideWindowsTaskbar = persistedTaskbarSetting,
+            MenuBarReserveWorkArea = menuBarReserveWorkArea,
+            TrayTakeover = persistedTrayTakeover,
         };
         var settings = new FakeAppSettingsStore(events, initialSettings);
         var lease = new FakeTaskbarLease(events)

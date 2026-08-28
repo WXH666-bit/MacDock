@@ -51,7 +51,8 @@
         </Border>
 
         <!-- 下边缘一根发丝分割线 -->
-        <Border Height="1" VerticalAlignment="Bottom" Background="#1FFFFFFF"/>
+        <Border Height="1" VerticalAlignment="Bottom"
+                Background="{DynamicResource MenuBarHairlineBrush}"/>
 
         <Grid Margin="8,0,8,0">
             <Grid.ColumnDefinitions>
@@ -76,8 +77,26 @@
                            RenderOptions.BitmapScalingMode="HighQuality"/>
                 </Border>
 
+                <Border x:Name="LaunchpadButton"
+                        Width="24" Height="22" Margin="5,0,0,0"
+                        Background="Transparent" CornerRadius="5"
+                        Cursor="Hand" ToolTip="启动台"
+                        MouseLeftButtonUp="OnLaunchpadClick">
+                    <UniformGrid Width="13" Height="13" Columns="3" Rows="3">
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                        <Ellipse Width="2.5" Height="2.5" Fill="{DynamicResource MenuBarForegroundBrush}"/>
+                    </UniformGrid>
+                </Border>
+
                 <TextBlock Text="{Binding ForegroundAppName}"
-                           Foreground="#F2FFFFFF"
+                           Foreground="{DynamicResource MenuBarForegroundBrush}"
                            FontSize="13"
                            FontWeight="Bold"
                            VerticalAlignment="Center"
@@ -113,7 +132,7 @@
                         <!-- 上折角箭头（^）：矢量 Path -->
                         <Path Width="9" Height="9"
                               Stretch="Uniform"
-                              Fill="#D9FFFFFF"
+                              Fill="{DynamicResource MenuBarSecondaryBrush}"
                               Data="M0.5,6 L4.5,2 L8.5,6 L7.3,7.2 L4.5,4.4 L1.7,7.2 Z"/>
                     </Border>
 
@@ -142,6 +161,27 @@
                     </Popup>
                 </StackPanel>
 
+                <!-- M5 控制中心：系统入口、音量、亮度与主题。 -->
+                <Border x:Name="ControlCenterButton"
+                        Width="28" Height="24"
+                        Background="Transparent"
+                        CornerRadius="5"
+                        Cursor="Hand"
+                        ToolTip="控制中心"
+                        MouseLeftButtonUp="OnControlCenterClick">
+                    <Canvas Width="16" Height="14">
+                        <Path Stroke="{DynamicResource MenuBarForegroundBrush}" StrokeThickness="1.5"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Data="M1,3.5 H15 M1,7 H15 M1,10.5 H15"/>
+                        <Ellipse Width="3.5" Height="3.5" Fill="{DynamicResource MenuBarForegroundBrush}"
+                                 Canvas.Left="4" Canvas.Top="1.75"/>
+                        <Ellipse Width="3.5" Height="3.5" Fill="{DynamicResource MenuBarForegroundBrush}"
+                                 Canvas.Left="10" Canvas.Top="5.25"/>
+                        <Ellipse Width="3.5" Height="3.5" Fill="{DynamicResource MenuBarForegroundBrush}"
+                                 Canvas.Left="6" Canvas.Top="8.75"/>
+                    </Canvas>
+                </Border>
+
                 <!-- 亮度（不支持时整个隐藏） -->
                 <Border x:Name="BrightnessIcon"
                         Visibility="{Binding IsBrightnessAvailable, Converter={StaticResource BoolToVisibility}}"
@@ -155,7 +195,7 @@
                     <!-- 太阳：四芒星，代表亮度调节 -->
                     <Path Width="15" Height="15"
                           Stretch="Uniform"
-                          Fill="#F2FFFFFF"
+                          Fill="{DynamicResource MenuBarForegroundBrush}"
                           Data="M12,4 L13.7,10.3 L20,12 L13.7,13.7 L12,20 L10.3,13.7 L4,12 L10.3,10.3 Z"/>
                 </Border>
 
@@ -171,13 +211,13 @@
                         MouseWheel="OnVolumeWheel">
                     <Path Width="15" Height="15"
                           Stretch="Uniform"
-                          Fill="#F2FFFFFF"
+                          Fill="{DynamicResource MenuBarForegroundBrush}"
                           Data="{Binding VolumeIconState, Converter={StaticResource IconToGeometry}}"/>
                 </Border>
 
                 <TextBlock Text="{Binding VolumePercent}"
                            Visibility="{Binding IsAudioAvailable, Converter={StaticResource BoolToVisibility}}"
-                           Foreground="#D9FFFFFF"
+                           Foreground="{DynamicResource MenuBarSecondaryBrush}"
                            FontSize="12"
                            VerticalAlignment="Center"
                            Margin="0,0,10,0"
@@ -185,7 +225,7 @@
 
                 <!-- 右：时间 -->
                 <TextBlock Text="{Binding ClockText}"
-                           Foreground="#F2FFFFFF"
+                           Foreground="{DynamicResource MenuBarForegroundBrush}"
                            FontSize="13"
                            VerticalAlignment="Center"/>
             </StackPanel>

@@ -11,6 +11,29 @@ namespace MacDock.Core.Services;
 /// </summary>
 public static class ProcessLauncher
 {
+    /// <summary>启动启动台中的桌面或商店应用。</summary>
+    public static void Launch(InstalledApp app)
+    {
+        ArgumentNullException.ThrowIfNull(app);
+
+        if (app.Kind == InstalledAppKind.Store)
+        {
+            if (string.IsNullOrWhiteSpace(app.Aumid))
+                throw new InvalidDataException("商店应用缺少 AUMID。");
+
+            StoreAppResolver.LaunchByAumid(app.Aumid);
+            return;
+        }
+
+        Launch(new DockItem
+        {
+            Name = app.Name,
+            Path = app.LaunchTarget,
+            IconPath = app.IconPath,
+            Arguments = app.Arguments,
+        });
+    }
+
     /// <summary>启动 Dock 项目对应的应用。</summary>
     public static void Launch(DockItem item)
     {
