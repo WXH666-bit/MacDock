@@ -1,4 +1,5 @@
 using MacDock.Core.Services;
+using MacDock.Core.Models;
 using MacDock.UI.ViewModels;
 using Xunit;
 
@@ -103,6 +104,46 @@ public sealed class RunningDockItemResolverTests
 
         var item = Assert.Single(persisted);
         Assert.Same(pinnedModel, item);
+    }
+
+    [Fact]
+    public void SelectPersistentItems_IncludesPinnedSeparatorInOrder()
+    {
+        static void Ignore(DockItemViewModel _)
+        {
+        }
+
+        var firstModel = new DockItem { Name = "First", Path = @"C:\Apps\First.exe" };
+        var separatorModel = new DockItem
+        {
+            Kind = DockItemKind.Separator,
+            Name = "分隔线",
+        };
+        var transientModel = new DockItem
+        {
+            Name = "Transient",
+            Path = @"C:\Apps\Transient.exe",
+        };
+        var first = new DockItemViewModel(firstModel, null, true, Ignore, Ignore, Ignore);
+        var separator = new DockItemViewModel(
+            separatorModel,
+            null,
+            true,
+            Ignore,
+            Ignore,
+            Ignore);
+        var transient = new DockItemViewModel(
+            transientModel,
+            null,
+            false,
+            Ignore,
+            Ignore,
+            Ignore);
+
+        var persisted = MainViewModel.SelectPersistentItems(
+            [first, separator, transient]);
+
+        Assert.Equal([firstModel, separatorModel], persisted);
     }
 
     [Theory]

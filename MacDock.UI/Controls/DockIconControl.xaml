@@ -42,7 +42,8 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid Background="Transparent">
+    <Grid Background="Transparent"
+          AutomationProperties.Name="{Binding Name}">
         <Grid.InputBindings>
             <MouseBinding MouseAction="LeftClick" Command="{Binding LaunchCommand}"/>
         </Grid.InputBindings>
@@ -53,9 +54,13 @@
                         <Style TargetType="MenuItem">
                             <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsPinned}" Value="False">
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsPinned}" Value="False"/>
+                                        <Condition Binding="{Binding IsSeparator}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
                                     <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
+                                </MultiDataTrigger>
                             </Style.Triggers>
                         </Style>
                     </MenuItem.Style>
@@ -65,9 +70,62 @@
                         <Style TargetType="MenuItem">
                             <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsPinned}" Value="True"/>
+                                        <Condition Binding="{Binding IsSeparator}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
                                     <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </MenuItem.Style>
+                </MenuItem>
+                <MenuItem Header="移除分隔线" Command="{Binding RemoveCommand}">
+                    <MenuItem.Style>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsPinned}" Value="True"/>
+                                        <Condition Binding="{Binding IsSeparator}" Value="True"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </MenuItem.Style>
+                </MenuItem>
+                <Separator>
+                    <Separator.Style>
+                        <Style TargetType="Separator">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsPinned}" Value="True"/>
+                                        <Condition Binding="{Binding IsSeparator}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </MultiDataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Separator.Style>
+                </Separator>
+                <MenuItem Header="在右侧添加分隔线"
+                          Command="{Binding AddSeparatorAfterCommand}">
+                    <MenuItem.Style>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <MultiDataTrigger>
+                                    <MultiDataTrigger.Conditions>
+                                        <Condition Binding="{Binding IsPinned}" Value="True"/>
+                                        <Condition Binding="{Binding IsSeparator}" Value="False"/>
+                                    </MultiDataTrigger.Conditions>
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </MultiDataTrigger>
                             </Style.Triggers>
                         </Style>
                     </MenuItem.Style>
@@ -102,6 +160,35 @@
                          VerticalAlignment="Center"
                          Margin="0,2,0,0"/>
             </Grid>
+        </Border>
+
+        <!-- 分隔线不参与鱼眼放大；渐变边缘让它像玻璃中的细光缝。 -->
+        <Border x:Name="SeparatorVisual"
+                Width="1.5"
+                Height="38"
+                CornerRadius="0.75"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,9"
+                IsHitTestVisible="False">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                    <GradientStop Color="#00FFFFFF" Offset="0"/>
+                    <GradientStop Color="#78FFFFFF" Offset="0.24"/>
+                    <GradientStop Color="#78FFFFFF" Offset="0.76"/>
+                    <GradientStop Color="#00FFFFFF" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSeparator}" Value="True">
+                            <Setter Property="Visibility" Value="Visible"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
         </Border>
     </Grid>
 </UserControl>

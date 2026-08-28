@@ -6,6 +6,7 @@ using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using MacDock.Core.Models;
 using MacDock.Core.Services;
+using MacDock.UI.Services;
 using NLog;
 
 namespace MacDock.UI.ViewModels;
@@ -35,6 +36,12 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>Dock 项目列表。</summary>
     public ObservableCollection<DockItemViewModel> Items { get; } = new();
+
+    /// <summary>
+    /// 固定项目数量。固定项始终位于临时运行项之前，FishEyePanel 据此绘制系统分组线。
+    /// </summary>
+    [ObservableProperty]
+    private int _pinnedItemCount;
 
     /// <summary>
     /// 共享的窗口监控实例：菜单栏复用同一份 WinEventHook，避免重复挂钩。
@@ -80,6 +87,8 @@ public partial class MainViewModel : ObservableObject
         Logger.Info("从存储加载了 {0} 个项目", items.Count);
         foreach (var item in items)
             Items.Add(CreateViewModel(item, isPinned: true));
+
+        RefreshPinnedItemCount();
 
         // 加载完成后刷新全部运行状态（同一套匹配规则，UWP 项也能亮）
         _windowMonitor.Refresh();
@@ -236,7 +245,8 @@ public partial class MainViewModel : ObservableObject
     /// </summary>
     private static bool Matches(DockItem item, string exeName)
     {
-        if (string.IsNullOrWhiteSpace(exeName))
+        if (item.Kind != DockItemKind.Application
+            || string.IsNullOrWhiteSpace(exeName))
             return false;
 
         var itemExe = Path.GetFileNameWithoutExtension(item.Path);
@@ -266,8 +276,11 @@ public partial class MainViewModel : ObservableObject
             && string.Equals(lastSegment, exeName, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>通过拖入的路径新增项目（.lnk / .exe）。</summary>
-    public void AddFromPath(string path)
+    /// <summary>
+    /// 通过拖入的路径新增项目（.lnk / .exe），并可指定固定区中的插入边界。
+    /// </summary>
+    /// <returns>是否实际新增或固定了项目。</returns>
+    public bool AddFromPath(string path, int? pinnedInsertionIndex = null)
     {
         var info = ShortcutResolver.Resolve(path);
         var item = new DockItem
@@ -288,31 +301,86 @@ public partial class MainViewModel : ObservableObject
         if (existing is not null)
         {
             if (existing.IsPinned)
-                return;
+                return false;
 
-            var index = Items.IndexOf(existing);
+            Items.Remove(existing);
             var replacement = CreateViewModel(item, isPinned: true);
             replacement.IsRunning = existing.IsRunning;
             replacement.Model.IsRunning = existing.IsRunning;
-            Items[index] = replacement;
+            Items.Insert(NormalizePinnedInsertionIndex(pinnedInsertionIndex), replacement);
             Persist();
-            return;
+            return true;
         }
 
-        Items.Add(CreateViewModel(item, isPinned: true));
+        Items.Insert(
+            NormalizePinnedInsertionIndex(pinnedInsertionIndex),
+            CreateViewModel(item, isPinned: true));
         Persist();
+        return true;
+    }
+
+    /// <summary>在固定区指定边界添加一个持久化分隔线。</summary>
+    /// <returns>相邻位置已有分隔线时返回 false，避免生成无意义的连续分隔线。</returns>
+    public bool AddSeparator(int pinnedInsertionIndex)
+    {
+        var index = NormalizePinnedInsertionIndex(pinnedInsertionIndex);
+        var pinnedCount = Items.Count(static item => item.IsPinned);
+        if ((index > 0 && Items[index - 1].IsSeparator)
+            || (index < pinnedCount && Items[index].IsSeparator))
+        {
+            return false;
+        }
+
+        var separator = new DockItem
+        {
+            Name = "分隔线",
+            Path = string.Empty,
+            Kind = DockItemKind.Separator,
+        };
+        Items.Insert(index, CreateViewModel(separator, isPinned: true));
+        Persist();
+        return true;
+    }
+
+    /// <summary>把固定项目移动到固定区的插入边界，临时运行项不参与重排。</summary>
+    /// <returns>顺序是否发生变化。</returns>
+    public bool MovePinnedItem(DockItemViewModel item, int pinnedInsertionIndex)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        if (!item.IsPinned)
+            return false;
+
+        var sourceIndex = Items.IndexOf(item);
+        var pinnedCount = Items.Count(static candidate => candidate.IsPinned);
+        if (sourceIndex < 0 || sourceIndex >= pinnedCount)
+            return false;
+
+        var destinationIndex = DockItemReorder.GetDestinationIndex(
+            sourceIndex,
+            pinnedInsertionIndex,
+            pinnedCount);
+        if (destinationIndex == sourceIndex)
+            return false;
+
+        Items.Move(sourceIndex, destinationIndex);
+        Persist();
+        return true;
     }
 
     private DockItemViewModel CreateViewModel(DockItem item, bool isPinned)
     {
         var vm = new DockItemViewModel(
             item,
-            IconService.GetPlaceholderIcon(),
+            item.Kind == DockItemKind.Separator
+                ? null
+                : IconService.GetPlaceholderIcon(),
             isPinned,
             Launch,
             Remove,
-            Pin);
-        _ = LoadIconAsync(vm);
+            Pin,
+            AddSeparatorAfter);
+        if (!vm.IsSeparator)
+            _ = LoadIconAsync(vm);
         return vm;
     }
 
@@ -320,6 +388,9 @@ public partial class MainViewModel : ObservableObject
     private async Task LoadIconAsync(DockItemViewModel vm)
     {
         var item = vm.Model;
+        if (item.Kind == DockItemKind.Separator)
+            return;
+
         BitmapSource? icon;
         try
         {
@@ -363,6 +434,9 @@ public partial class MainViewModel : ObservableObject
 
     private void Launch(DockItemViewModel vm)
     {
+        if (vm.IsSeparator)
+            return;
+
         try
         {
             ProcessLauncher.Launch(vm.Model);
@@ -397,11 +471,13 @@ public partial class MainViewModel : ObservableObject
         if (!vm.IsPinned)
             return;
 
-        if (vm.IsRunning)
+        if (vm.IsRunning && !vm.IsSeparator)
         {
             // 与 macOS 一致：取消固定不结束应用；图标保留到最后一个可见窗口关闭。
             vm.IsPinned = false;
             vm.Model.IsBuiltIn = false;
+            Items.Remove(vm);
+            Items.Add(vm);
         }
         else
         {
@@ -413,16 +489,34 @@ public partial class MainViewModel : ObservableObject
 
     private void Pin(DockItemViewModel vm)
     {
-        if (vm.IsPinned || !vm.IsRunning)
+        if (vm.IsPinned || !vm.IsRunning || vm.IsSeparator)
             return;
 
+        Items.Remove(vm);
         vm.IsPinned = true;
         vm.Model.IsBuiltIn = false;
+        Items.Insert(PinnedItemCount, vm);
         Persist();
+    }
+
+    private void AddSeparatorAfter(DockItemViewModel vm)
+    {
+        if (!vm.IsPinned || vm.IsSeparator)
+            return;
+
+        var index = Items.IndexOf(vm);
+        if (index >= 0)
+            AddSeparator(index + 1);
     }
 
     private static bool SameLaunchTarget(DockItem left, DockItem right)
     {
+        if (left.Kind != DockItemKind.Application
+            || right.Kind != DockItemKind.Application)
+        {
+            return false;
+        }
+
         if (!string.IsNullOrWhiteSpace(left.StoreAppName)
             || !string.IsNullOrWhiteSpace(right.StoreAppName))
         {
@@ -450,8 +544,20 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private int NormalizePinnedInsertionIndex(int? requestedIndex)
+    {
+        var pinnedCount = Items.Count(static item => item.IsPinned);
+        return Math.Clamp(requestedIndex ?? pinnedCount, 0, pinnedCount);
+    }
+
+    private void RefreshPinnedItemCount()
+        => PinnedItemCount = Items.Count(static item => item.IsPinned);
+
     private void Persist()
-        => _store.Save(SelectPersistentItems(Items));
+    {
+        RefreshPinnedItemCount();
+        _store.Save(SelectPersistentItems(Items));
+    }
 
     /// <summary>只选择固定项写入用户配置；临时运行项永远不进入持久化文件。</summary>
     internal static List<DockItem> SelectPersistentItems(

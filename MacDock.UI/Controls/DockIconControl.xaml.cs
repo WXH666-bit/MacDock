@@ -6,6 +6,7 @@ using System.Windows.Media.Animation;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MacDock.Animations;
+using MacDock.UI.ViewModels;
 
 namespace MacDock.UI.Controls;
 
@@ -24,6 +25,9 @@ public partial class DockIconControl : UserControl
 
     private void OnPreviewLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (DataContext is DockItemViewModel { IsSeparator: true })
+            return;
+
         BounceAnimation.Play(SquircleBorder);
     }
 }

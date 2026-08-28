@@ -5,6 +5,9 @@ namespace MacDock.Core.Models;
 /// </summary>
 public sealed class DockItem
 {
+    /// <summary>Dock 项目类型；缺少该字段的旧 JSON 会按应用处理。</summary>
+    public DockItemKind Kind { get; set; } = DockItemKind.Application;
+
     /// <summary>显示名称。</summary>
     public string Name { get; set; } = string.Empty;
 

@@ -18,6 +18,7 @@ public sealed class DockItemStore
     };
 
     private readonly string _filePath;
+    private readonly AtomicJsonFile<List<DockItem>> _file;
 
     /// <summary>默认预置项目（首次运行）。</summary>
     public static IReadOnlyList<DockItem> DefaultItems { get; } = CreateDefaultItems();
@@ -30,6 +31,7 @@ public sealed class DockItemStore
     public DockItemStore(string filePath)
     {
         _filePath = filePath;
+        _file = new AtomicJsonFile<List<DockItem>>(filePath, JsonOptions);
     }
 
     /// <summary>
@@ -97,13 +99,15 @@ public sealed class DockItemStore
 
     /// <summary>坏死判定：路径不可用，且无商店应用名、无内置图标兜底。</summary>
     private static bool IsDead(DockItem item)
-        => (string.IsNullOrWhiteSpace(item.Path) || !File.Exists(item.Path))
+        => item.Kind != DockItemKind.Separator
+           && (string.IsNullOrWhiteSpace(item.Path) || !File.Exists(item.Path))
            && string.IsNullOrWhiteSpace(item.StoreAppName)
            && string.IsNullOrWhiteSpace(item.IconOverride);
 
     /// <summary>复制默认项，避免调用方修改静态 DefaultItems 实例。</summary>
     private static DockItem Clone(DockItem source) => new()
     {
+        Kind = source.Kind,
         Name = source.Name,
         Path = source.Path,
         IconPath = source.IconPath,
@@ -116,12 +120,8 @@ public sealed class DockItemStore
     /// <summary>保存 Dock 项目到磁盘。</summary>
     public void Save(IEnumerable<DockItem> items)
     {
-        var dir = Path.GetDirectoryName(_filePath);
-        if (!string.IsNullOrWhiteSpace(dir))
-            Directory.CreateDirectory(dir);
-
-        var json = JsonSerializer.Serialize(items.ToList(), JsonOptions);
-        File.WriteAllText(_filePath, json);
+        ArgumentNullException.ThrowIfNull(items);
+        _file.Write(items.ToList());
     }
 
     // 内置图标（MacDock.UI 资源）兜底用：Win11 计算器/商店版记事本无本地 exe 可提取

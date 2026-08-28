@@ -53,17 +53,38 @@
             <ItemsControl x:Name="DockItems"
                           ItemsSource="{Binding Items}"
                           Background="#01000000"
+                          MinWidth="72"
                           AllowDrop="True"
+                          PreviewMouseLeftButtonDown="OnDockPreviewMouseLeftButtonDown"
+                          PreviewMouseLeftButtonUp="OnDockPreviewMouseLeftButtonUp"
+                          PreviewMouseMove="OnDockPreviewMouseMove"
                           DragOver="OnDragOver"
+                          DragLeave="OnDragLeave"
                           Drop="OnDrop">
+                <ItemsControl.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="添加分隔线" Click="OnAddSeparatorClick"/>
+                    </ContextMenu>
+                </ItemsControl.ContextMenu>
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
                         <controls:FishEyePanel IconSize="56" MaxScale="1.6"
                                                EffectRadius="130" Spacing="8"
+                                               GroupBreakIndex="{Binding PinnedItemCount}"
                                                UseLayoutRounding="True"
                                                Loaded="OnFishEyePanelLoaded"/>
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemContainerStyle>
+                    <Style TargetType="ContentPresenter">
+                        <Setter Property="controls:FishEyePanel.ItemExtent" Value="56"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSeparator}" Value="True">
+                                <Setter Property="controls:FishEyePanel.ItemExtent" Value="18"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <controls:DockIconControl/>
@@ -71,5 +92,29 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </StackPanel>
+
+        <!-- 拖拽时只显示一条冷白光缝，明确插入位置而不遮挡 Dock 图标。 -->
+        <Canvas x:Name="DragOverlay" IsHitTestVisible="False">
+            <Border x:Name="DropInsertionIndicator"
+                    Width="3"
+                    Height="44"
+                    CornerRadius="1.5"
+                    Opacity="0">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                        <GradientStop Color="#00FFFFFF" Offset="0"/>
+                        <GradientStop Color="#FFF8FBFF" Offset="0.2"/>
+                        <GradientStop Color="#FFF8FBFF" Offset="0.8"/>
+                        <GradientStop Color="#00FFFFFF" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="8"
+                                      ShadowDepth="0"
+                                      Opacity="0.8"
+                                      Color="#6F91FF"/>
+                </Border.Effect>
+            </Border>
+        </Canvas>
     </Grid>
 </Window>

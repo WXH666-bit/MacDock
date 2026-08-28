@@ -23,6 +23,9 @@ public partial class DockItemViewModel : ObservableObject
     /// <summary>是否为内置默认项。</summary>
     public bool IsBuiltIn => Model.IsBuiltIn;
 
+    /// <summary>是否为只承担视觉分组作用的 Dock 分隔线。</summary>
+    public bool IsSeparator => Model.Kind == DockItemKind.Separator;
+
     /// <summary>内置图标资源（pack URI）；非空时优先于系统图标。</summary>
     public string? IconOverride => Model.IconOverride;
 
@@ -47,6 +50,9 @@ public partial class DockItemViewModel : ObservableObject
     /// <summary>把临时运行项保留在 Dock 的命令。</summary>
     public ICommand PinCommand { get; }
 
+    /// <summary>在当前固定项右侧添加分隔线的命令。</summary>
+    public ICommand AddSeparatorAfterCommand { get; }
+
     /// <summary>创建一个固定或临时的 Dock 项视图模型。</summary>
     public DockItemViewModel(
         DockItem model,
@@ -54,13 +60,22 @@ public partial class DockItemViewModel : ObservableObject
         bool isPinned,
         Action<DockItemViewModel> onLaunch,
         Action<DockItemViewModel> onRemove,
-        Action<DockItemViewModel> onPin)
+        Action<DockItemViewModel> onPin,
+        Action<DockItemViewModel>? onAddSeparatorAfter = null)
     {
         Model = model ?? throw new ArgumentNullException(nameof(model));
         _icon = icon;
         _isPinned = isPinned;
-        LaunchCommand = new RelayCommand(() => onLaunch(this));
+        LaunchCommand = new RelayCommand(
+            () =>
+            {
+                if (!IsSeparator)
+                    onLaunch(this);
+            },
+            () => !IsSeparator);
         RemoveCommand = new RelayCommand(() => onRemove(this));
         PinCommand = new RelayCommand(() => onPin(this));
+        AddSeparatorAfterCommand = new RelayCommand(
+            () => onAddSeparatorAfter?.Invoke(this));
     }
 }

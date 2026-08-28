@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -29,6 +30,7 @@ public partial class DockWindow : Window
     /// <summary>静止图标底边距玻璃条底边的内缩。</summary>
     private const double IconBottomInset = 7;
     private const int MaxConcurrentMinimizeFlights = 3;
+    private const string DockItemDragFormat = "MacDock.DockItemViewModel";
     /// <summary>玻璃条高度 = 图标尺寸 + 2 * IconBottomInset。</summary>
     private static double BackdropHeight(double iconSize) => iconSize + 2 * IconBottomInset;
 
@@ -43,6 +45,10 @@ public partial class DockWindow : Window
     private HwndSource? _messageSource;
     private HwndSourceHook? _shellMessageHook;
     private SettingsWindow? _settingsWindow;
+    private DockIconControl? _dragSourceControl;
+    private DockItemViewModel? _dragCandidate;
+    private Point _dragStartPoint;
+    private int? _dropInsertionIndex;
     private bool _closing;
 
     public event EventHandler? ShellEnvironmentChanged;
@@ -117,6 +123,9 @@ public partial class DockWindow : Window
     /// <summary>鱼眼面板加载完成：保存引用并挂接悬停事件（面板在 ItemsPanelTemplate 内，无法 x:Name）。</summary>
     private void OnFishEyePanelLoaded(object sender, RoutedEventArgs e)
     {
+        if (_panel is not null)
+            _panel.HoverChanged -= OnHoverChanged;
+
         _panel = (FishEyePanel)sender;
         _panel.HoverChanged += OnHoverChanged;
         PositionDock();
@@ -158,7 +167,14 @@ public partial class DockWindow : Window
             return;
         }
 
-        NameText.Text = _viewModel.Items[index].Name;
+        var item = _viewModel.Items[index];
+        if (item.IsSeparator)
+        {
+            FadeBubble(0);
+            return;
+        }
+
+        NameText.Text = item.Name;
         NameBubble.UpdateLayout();
 
         if (_panel is not null)
@@ -361,33 +377,223 @@ public partial class DockWindow : Window
         }
     }
 
-    // ---- 拖入固定 ----
-    private void OnDragOver(object sender, DragEventArgs e)
+    // ---- Dock 内重排与外部拖入固定 ----
+    private void OnDockPreviewMouseLeftButtonDown(
+        object sender,
+        MouseButtonEventArgs e)
     {
-        e.Effects = DragDropEffects.None;
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Any(IsSupportedFile))
-            e.Effects = DragDropEffects.Copy;
+        _dragSourceControl = FindVisualAncestor<DockIconControl>(
+            e.OriginalSource as DependencyObject);
+        _dragCandidate = _dragSourceControl?.DataContext as DockItemViewModel;
+        if (_dragCandidate is not { IsPinned: true })
+        {
+            _dragSourceControl = null;
+            _dragCandidate = null;
+            return;
+        }
+
+        _dragStartPoint = e.GetPosition(DockItems);
+    }
+
+    private void OnDockPreviewMouseLeftButtonUp(
+        object sender,
+        MouseButtonEventArgs e)
+    {
+        _dragSourceControl = null;
+        _dragCandidate = null;
+    }
+
+    private void OnDockPreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed
+            || _dragSourceControl is null
+            || _dragCandidate is not { IsPinned: true } candidate)
+        {
+            return;
+        }
+
+        var current = e.GetPosition(DockItems);
+        if (Math.Abs(current.X - _dragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(current.Y - _dragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        var source = _dragSourceControl;
+        _dragSourceControl = null;
+        _dragCandidate = null;
+        FadeBubble(0);
+
+        var data = new DataObject();
+        data.SetData(DockItemDragFormat, candidate);
+        try
+        {
+            DragDrop.DoDragDrop(source, data, DragDropEffects.Move);
+        }
+        finally
+        {
+            HideInsertionIndicator();
+            _dropInsertionIndex = null;
+        }
 
         e.Handled = true;
     }
 
+    private void OnDragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.None;
+
+        if (TryGetDraggedDockItem(e.Data, out var draggedItem)
+            && draggedItem.IsPinned)
+        {
+            e.Effects = DragDropEffects.Move;
+            UpdateInsertionIndicator(e);
+        }
+        else if (e.Data.GetData(DataFormats.FileDrop) is string[] files
+                 && files.Any(IsSupportedFile))
+        {
+            e.Effects = DragDropEffects.Copy;
+            UpdateInsertionIndicator(e);
+        }
+        else
+        {
+            HideInsertionIndicator();
+            _dropInsertionIndex = null;
+        }
+
+        e.Handled = true;
+    }
+
+    private void OnDragLeave(object sender, DragEventArgs e)
+    {
+        HideInsertionIndicator();
+        _dropInsertionIndex = null;
+    }
+
     private void OnDrop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files)
+        var insertionIndex = _dropInsertionIndex ?? GetInsertionIndex(e);
+        HideInsertionIndicator();
+        _dropInsertionIndex = null;
+
+        if (TryGetDraggedDockItem(e.Data, out var draggedItem))
+        {
+            if (_viewModel.MovePinnedItem(draggedItem, insertionIndex))
+                Logger.Info("已重排 Dock 固定项：{0}", draggedItem.Name);
+
+            e.Effects = DragDropEffects.Move;
+            e.Handled = true;
             return;
+        }
+
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files)
+        {
+            e.Handled = true;
+            return;
+        }
 
         foreach (var file in files.Where(IsSupportedFile))
         {
             try
             {
-                _viewModel.AddFromPath(file);
-                Logger.Info("已固定项目：{0}", file);
+                if (_viewModel.AddFromPath(file, insertionIndex))
+                {
+                    insertionIndex++;
+                    Logger.Info("已固定项目：{0}", file);
+                }
             }
             catch (Exception ex)
             {
                 Logger.Error(ex, "固定项目失败：{0}", file);
             }
         }
+
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private void OnAddSeparatorClick(object sender, RoutedEventArgs e)
+        => _viewModel.AddSeparator(_viewModel.PinnedItemCount);
+
+    private void UpdateInsertionIndicator(DragEventArgs e)
+    {
+        var insertionIndex = GetInsertionIndex(e);
+        var positionChanged = _dropInsertionIndex != insertionIndex;
+        _dropInsertionIndex = insertionIndex;
+        if (positionChanged || DropInsertionIndicator.Opacity < 0.99)
+            ShowInsertionIndicator(insertionIndex);
+    }
+
+    private int GetInsertionIndex(DragEventArgs e)
+    {
+        if (_panel is null)
+            return _viewModel.PinnedItemCount;
+
+        var point = e.GetPosition(_panel);
+        return _panel.GetInsertionIndex(point.X, _viewModel.PinnedItemCount);
+    }
+
+    private void ShowInsertionIndicator(int insertionIndex)
+    {
+        if (_panel is null || _panel.ActualHeight <= 0)
+            return;
+
+        var panelX = _panel.GetInsertionX(insertionIndex);
+        var panelTop = Math.Max(0, _panel.ActualHeight - _panel.IconSize + 6);
+        var position = _panel.TranslatePoint(
+            new Point(panelX, panelTop),
+            DragOverlay);
+
+        Canvas.SetLeft(
+            DropInsertionIndicator,
+            position.X - DropInsertionIndicator.Width / 2.0);
+        Canvas.SetTop(DropInsertionIndicator, position.Y);
+        DropInsertionIndicator.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation(1, TimeSpan.FromMilliseconds(90))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+            });
+    }
+
+    private void HideInsertionIndicator()
+    {
+        DropInsertionIndicator.BeginAnimation(
+            OpacityProperty,
+            new DoubleAnimation(0, TimeSpan.FromMilliseconds(80))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+            });
+    }
+
+    private static bool TryGetDraggedDockItem(
+        IDataObject data,
+        out DockItemViewModel item)
+    {
+        item = null!;
+        if (!data.GetDataPresent(DockItemDragFormat))
+            return false;
+
+        if (data.GetData(DockItemDragFormat) is not DockItemViewModel draggedItem)
+            return false;
+
+        item = draggedItem;
+        return true;
+    }
+
+    private static T? FindVisualAncestor<T>(DependencyObject? source)
+        where T : DependencyObject
+    {
+        var current = source;
+        while (current is not null)
+        {
+            if (current is T match)
+                return match;
+
+            current = VisualTreeHelper.GetParent(current);
+        }
+
+        return null;
     }
 
     private static bool IsSupportedFile(string path) =>
@@ -438,6 +644,8 @@ public partial class DockWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _closing = true;
+        if (_panel is not null)
+            _panel.HoverChanged -= OnHoverChanged;
         if (_messageSource is not null && _shellMessageHook is not null)
             _messageSource.RemoveHook(_shellMessageHook);
 

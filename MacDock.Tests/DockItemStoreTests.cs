@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MacDock.Core.Models;
 using MacDock.Core.Services;
 using Xunit;
@@ -42,6 +43,7 @@ public class DockItemStoreTests
             Assert.Equal("记事本", loaded[0].Name);
             Assert.Equal(appA, loaded[0].Path);
             Assert.True(loaded[0].IsBuiltIn);
+            Assert.Equal(DockItemKind.Application, loaded[0].Kind);
             Assert.Equal("--foo", loaded[1].Arguments);
         }
         finally
@@ -51,6 +53,68 @@ public class DockItemStoreTests
                 if (File.Exists(f))
                     File.Delete(f);
             }
+        }
+    }
+
+    [Fact]
+    public void Load_LegacyJsonWithoutKind_DefaultsToApplication()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"macdock-legacy-kind-{Guid.NewGuid():N}.json");
+        var appPath = Path.Combine(Path.GetTempPath(), $"macdock-legacy-app-{Guid.NewGuid():N}.exe");
+        try
+        {
+            File.WriteAllText(appPath, string.Empty);
+            // 模拟没有 kind 字段的旧版本配置。
+            File.WriteAllText(path, JsonSerializer.Serialize(new[]
+            {
+                new
+                {
+                    name = "旧应用",
+                    path = appPath,
+                },
+            }));
+
+            var item = Assert.Single(new DockItemStore(path).Load());
+
+            Assert.Equal("旧应用", item.Name);
+            Assert.Equal(appPath, item.Path);
+            Assert.Equal(DockItemKind.Application, item.Kind);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+            if (File.Exists(appPath))
+                File.Delete(appPath);
+        }
+    }
+
+    [Fact]
+    public void Separator_RoundTripsAndIsNotRemovedByHealing()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"macdock-separator-{Guid.NewGuid():N}.json");
+        try
+        {
+            new DockItemStore(path).Save(new List<DockItem>
+            {
+                new()
+                {
+                    Kind = DockItemKind.Separator,
+                    Name = "分隔线",
+                    Path = string.Empty,
+                },
+            });
+
+            var item = Assert.Single(new DockItemStore(path).Load());
+
+            Assert.Equal(DockItemKind.Separator, item.Kind);
+            Assert.Equal("分隔线", item.Name);
+            Assert.Equal(string.Empty, item.Path);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
         }
     }
 
