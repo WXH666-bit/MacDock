@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Threading.Channels;
 using System.Windows;
 using System.Windows.Threading;
 using System.Windows.Media.Imaging;
@@ -18,6 +19,19 @@ public partial class MainViewModel : ObservableObject
     private readonly DockItemStore _store = new();
     private readonly IconService _iconService = IconService.Instance;
     private readonly WindowMonitor _windowMonitor = new();
+    private readonly RunningDockItemResolver _runningItemResolver = new();
+    private readonly CancellationTokenSource _runningItemCancellation = new();
+    private readonly Channel<string> _runningItemQueue = Channel.CreateBounded<string>(
+        new BoundedChannelOptions(64)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropWrite,
+        });
+    private readonly object _pendingRunningItemsSync = new();
+    private readonly HashSet<string> _pendingRunningItems = new(
+        StringComparer.OrdinalIgnoreCase);
+    private readonly Task _runningItemWorker;
 
     /// <summary>Dock 项目列表。</summary>
     public ObservableCollection<DockItemViewModel> Items { get; } = new();
@@ -36,6 +50,8 @@ public partial class MainViewModel : ObservableObject
 
     public MainViewModel()
     {
+        _runningItemWorker = Task.Run(ProcessRunningItemQueueAsync);
+
         // 监听窗口运行状态变化，更新对应 DockItem 的 IsRunning
         _windowMonitor.RunningStateChanged += OnRunningStateChanged;
 
@@ -48,6 +64,10 @@ public partial class MainViewModel : ObservableObject
             return;
 
         _disposed = true;
+        _windowMonitor.RunningStateChanged -= OnRunningStateChanged;
+        _runningItemQueue.Writer.TryComplete();
+        _runningItemCancellation.Cancel();
+        _ = ObserveRunningItemWorkerShutdownAsync();
         _windowMonitor.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -59,7 +79,7 @@ public partial class MainViewModel : ObservableObject
         var items = _store.Load();
         Logger.Info("从存储加载了 {0} 个项目", items.Count);
         foreach (var item in items)
-            Items.Add(CreateViewModel(item));
+            Items.Add(CreateViewModel(item, isPinned: true));
 
         // 加载完成后刷新全部运行状态（同一套匹配规则，UWP 项也能亮）
         _windowMonitor.Refresh();
@@ -73,29 +93,131 @@ public partial class MainViewModel : ObservableObject
 
     private void OnRunningStateChanged(string exeName, bool isRunning)
     {
-        // 在主线程更新（WindowMonitor 回调在原生线程）
+        // 在主线程更新集合与绑定属性（WindowMonitor 回调在专用原生消息线程）。
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher is null)
             return;
 
         dispatcher.BeginInvoke(() =>
         {
-            foreach (var vm in Items)
-            {
-                if (!Matches(vm.Model, exeName))
-                    continue;
+            if (_disposed)
+                return;
 
-                vm.IsRunning = isRunning;
-                vm.Model.IsRunning = isRunning;
+            var item = FindItemForProcess(exeName);
+            if (item is not null)
+            {
+                item.IsRunning = isRunning;
+                item.Model.IsRunning = isRunning;
+                if (!isRunning && !item.IsPinned)
+                    Items.Remove(item);
                 return;
             }
 
-            // Debug 级：任何进程开关窗口都会走到这里，Warn 会刷屏（v10 审查遗留项）
-            Logger.Debug(
-                "运行状态上报未匹配到 Dock 项：exeName={0}，当前项={1}",
-                exeName,
-                string.Join(", ", Items.Select(i => $"{i.Model.Name}[path={i.Model.Path};store={i.Model.StoreAppName}]")));
+            if (isRunning)
+                QueueRunningItemResolution(exeName);
         }, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// 有界、去重地排队解析未固定运行应用。进程模块与 AppX 包访问都由单消费者
+    /// 后台 worker 执行，避免启动时并发枚举和 UI 卡顿。
+    /// </summary>
+    private void QueueRunningItemResolution(string exeName)
+    {
+        lock (_pendingRunningItemsSync)
+        {
+            if (_disposed || !_pendingRunningItems.Add(exeName))
+                return;
+
+            if (_runningItemQueue.Writer.TryWrite(exeName))
+                return;
+
+            _pendingRunningItems.Remove(exeName);
+            Logger.Debug("运行应用解析队列已满，跳过：{0}", exeName);
+        }
+    }
+
+    private async Task ProcessRunningItemQueueAsync()
+    {
+        var cancellationToken = _runningItemCancellation.Token;
+        try
+        {
+            await foreach (var exeName in _runningItemQueue.Reader
+                .ReadAllAsync(cancellationToken)
+                .ConfigureAwait(false))
+            {
+                try
+                {
+                    if (!_windowMonitor.IsProcessRunning(exeName))
+                        continue;
+
+                    var model = _runningItemResolver.Resolve(exeName);
+                    if (model is null || cancellationToken.IsCancellationRequested)
+                        continue;
+
+                    var dispatcher = Application.Current?.Dispatcher;
+                    if (dispatcher is null || dispatcher.HasShutdownStarted)
+                        continue;
+
+                    await dispatcher.InvokeAsync(
+                        () => AddResolvedRunningItem(exeName, model),
+                        DispatcherPriority.Background,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception exception)
+                {
+                    Logger.Debug(exception, "解析临时运行应用失败：{0}", exeName);
+                }
+                finally
+                {
+                    lock (_pendingRunningItemsSync)
+                        _pendingRunningItems.Remove(exeName);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 正常退出路径。
+        }
+        catch (Exception exception)
+        {
+            Logger.Error(exception, "运行应用解析 worker 异常退出");
+        }
+    }
+
+    private void AddResolvedRunningItem(string exeName, DockItem model)
+    {
+        if (_disposed
+            || !_windowMonitor.IsProcessRunning(exeName)
+            || FindItemForProcess(exeName) is not null)
+        {
+            return;
+        }
+
+        var viewModel = CreateViewModel(model, isPinned: false);
+        viewModel.IsRunning = true;
+        viewModel.Model.IsRunning = true;
+        Items.Add(viewModel);
+    }
+
+    private async Task ObserveRunningItemWorkerShutdownAsync()
+    {
+        try
+        {
+            await _runningItemWorker.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Logger.Error(exception, "等待运行应用解析 worker 退出失败");
+        }
+        finally
+        {
+            _runningItemCancellation.Dispose();
+        }
     }
 
     /// <summary>
@@ -158,13 +280,38 @@ public partial class MainViewModel : ObservableObject
             Arguments = info.Arguments,
             IsBuiltIn = false,
         };
-        Items.Add(CreateViewModel(item));
+
+        var processName = Path.GetFileNameWithoutExtension(item.Path);
+        var existing = Items.FirstOrDefault(candidate =>
+            SameLaunchTarget(candidate.Model, item)
+            || (!candidate.IsPinned && Matches(candidate.Model, processName)));
+        if (existing is not null)
+        {
+            if (existing.IsPinned)
+                return;
+
+            var index = Items.IndexOf(existing);
+            var replacement = CreateViewModel(item, isPinned: true);
+            replacement.IsRunning = existing.IsRunning;
+            replacement.Model.IsRunning = existing.IsRunning;
+            Items[index] = replacement;
+            Persist();
+            return;
+        }
+
+        Items.Add(CreateViewModel(item, isPinned: true));
         Persist();
     }
 
-    private DockItemViewModel CreateViewModel(DockItem item)
+    private DockItemViewModel CreateViewModel(DockItem item, bool isPinned)
     {
-        var vm = new DockItemViewModel(item, IconService.GetPlaceholderIcon(), Launch, Remove);
+        var vm = new DockItemViewModel(
+            item,
+            IconService.GetPlaceholderIcon(),
+            isPinned,
+            Launch,
+            Remove,
+            Pin);
         _ = LoadIconAsync(vm);
         return vm;
     }
@@ -247,9 +394,73 @@ public partial class MainViewModel : ObservableObject
 
     private void Remove(DockItemViewModel vm)
     {
-        Items.Remove(vm);
+        if (!vm.IsPinned)
+            return;
+
+        if (vm.IsRunning)
+        {
+            // 与 macOS 一致：取消固定不结束应用；图标保留到最后一个可见窗口关闭。
+            vm.IsPinned = false;
+            vm.Model.IsBuiltIn = false;
+        }
+        else
+        {
+            Items.Remove(vm);
+        }
+
         Persist();
     }
 
-    private void Persist() => _store.Save(Items.Select(vm => vm.Model).ToList());
+    private void Pin(DockItemViewModel vm)
+    {
+        if (vm.IsPinned || !vm.IsRunning)
+            return;
+
+        vm.IsPinned = true;
+        vm.Model.IsBuiltIn = false;
+        Persist();
+    }
+
+    private static bool SameLaunchTarget(DockItem left, DockItem right)
+    {
+        if (!string.IsNullOrWhiteSpace(left.StoreAppName)
+            || !string.IsNullOrWhiteSpace(right.StoreAppName))
+        {
+            return string.Equals(
+                left.StoreAppName,
+                right.StoreAppName,
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (string.IsNullOrWhiteSpace(left.Path) || string.IsNullOrWhiteSpace(right.Path))
+            return false;
+
+        try
+        {
+            return string.Equals(
+                Path.GetFullPath(left.Path),
+                Path.GetFullPath(right.Path),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or IOException
+            or NotSupportedException)
+        {
+            return string.Equals(left.Path, right.Path, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private void Persist()
+        => _store.Save(SelectPersistentItems(Items));
+
+    /// <summary>只选择固定项写入用户配置；临时运行项永远不进入持久化文件。</summary>
+    internal static List<DockItem> SelectPersistentItems(
+        IEnumerable<DockItemViewModel> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        return items
+            .Where(static viewModel => viewModel.IsPinned)
+            .Select(static viewModel => viewModel.Model)
+            .ToList();
+    }
 }

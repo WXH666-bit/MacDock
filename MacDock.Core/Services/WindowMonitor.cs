@@ -44,6 +44,9 @@ public sealed class WindowMonitor : IDisposable
     /// <summary>WinEventHook 回调委托（必须保持引用，否则被 GC 回收）。</summary>
     private readonly NativeMethods.WinEventDelegate _winEventProc;
 
+    /// <summary>WinEvent Hook 专用消息线程；安装、回调和注销都发生在该线程。</summary>
+    private readonly WinEventHookWorker _hookWorker;
+
     /// <summary>正在运行的进程名快照。</summary>
     public IReadOnlyCollection<string> RunningProcesses
     {
@@ -79,8 +82,10 @@ public sealed class WindowMonitor : IDisposable
     public WindowMonitor()
     {
         _winEventProc = WinEventCallback;
-        HookEvents();
-        ScanExistingWindows();
+        _hookWorker = new WinEventHookWorker(
+            HookEvents,
+            UnhookEvents,
+            exception => Logger.Error(exception, "WinEvent Hook 线程失败"));
     }
 
     /// <summary>判断指定进程名当前是否有可见顶层窗口。</summary>
@@ -96,6 +101,9 @@ public sealed class WindowMonitor : IDisposable
     /// <summary>刷新全部状态：重新枚举当前可见窗口。</summary>
     public void Refresh()
     {
+        if (Volatile.Read(ref _disposeState) != 0)
+            return;
+
         lock (_sync)
         {
             _visibleProcesses.Clear();
@@ -120,7 +128,12 @@ public sealed class WindowMonitor : IDisposable
             var hHook = NativeMethods.SetWinEventHook(evt, evt, IntPtr.Zero, _winEventProc,
                 0, 0, NativeMethods.WINEVENT_OUTOFCONTEXT);
             if (hHook == IntPtr.Zero)
-                Logger.Warn("SetWinEventHook 失败: event=0x{0:X}", evt);
+            {
+                Logger.Warn(
+                    "SetWinEventHook 失败: event=0x{0:X}, error={1}",
+                    evt,
+                    Marshal.GetLastWin32Error());
+            }
             else
                 _hookHandles.Add(hHook);
         }
@@ -145,8 +158,12 @@ public sealed class WindowMonitor : IDisposable
         IntPtr hWinEventHook, uint eventType, IntPtr hWnd,
         int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
     {
-        if (hWnd == IntPtr.Zero || idObject != 0)
+        if (Volatile.Read(ref _disposeState) != 0
+            || hWnd == IntPtr.Zero
+            || idObject != 0)
+        {
             return;
+        }
 
         try
         {
@@ -176,7 +193,10 @@ public sealed class WindowMonitor : IDisposable
                     break;
             }
         }
-        catch { }
+        catch (Exception exception)
+        {
+            Logger.Debug(exception, "处理 WinEvent 回调失败: event=0x{0:X}", eventType);
+        }
     }
 
     private void ReportMinimizeStarted(IntPtr hWnd)
@@ -417,15 +437,28 @@ public sealed class WindowMonitor : IDisposable
         }
     }
 
-    public void Dispose()
+    private void UnhookEvents()
     {
-        if (_disposed)
-            return;
-
         foreach (var hHook in _hookHandles)
-            NativeMethods.UnhookWinEvent(hHook);
+        {
+            if (!NativeMethods.UnhookWinEvent(hHook))
+            {
+                Logger.Warn(
+                    "UnhookWinEvent 失败: hook=0x{0:X}, error={1}",
+                    hHook.ToInt64(),
+                    Marshal.GetLastWin32Error());
+            }
+        }
 
         _hookHandles.Clear();
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+            return;
+
+        _hookWorker.Dispose();
 
         lock (_sync)
         {
@@ -433,11 +466,8 @@ public sealed class WindowMonitor : IDisposable
             _pidToExeName.Clear();
         }
 
-        _disposed = true;
         GC.SuppressFinalize(this);
     }
 
-    ~WindowMonitor() => Dispose();
-
-    private bool _disposed;
+    private int _disposeState;
 }

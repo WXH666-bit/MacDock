@@ -195,6 +195,24 @@ public sealed class AudioServiceTests
     }
 
     [Fact]
+    public void LazyFactory_IsNotCreatedUntilTheFirstAudioOperation()
+    {
+        var factory = new FakeFactory();
+        var createCalls = 0;
+        using var service = new AudioService(() =>
+        {
+            createCalls++;
+            return factory;
+        });
+
+        Assert.Equal(0, createCalls);
+
+        Assert.Equal(0.5f, service.GetVolume());
+        Assert.Equal(1, createCalls);
+        Assert.True(factory.Notifier.RegisterCalled);
+    }
+
+    [Fact]
     public void NotifierVolumeChange_RaisesServiceVolumeChanged()
     {
         var factory = new FakeFactory();

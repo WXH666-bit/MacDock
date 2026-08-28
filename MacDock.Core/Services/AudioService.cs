@@ -43,25 +43,49 @@ public sealed class AudioService : IDisposable
 {
     private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
 
-    private readonly IAudioEndpointFactory _factory;
-    private readonly IAudioVolumeNotifier _notifier;
+    private readonly Func<IAudioEndpointFactory> _factoryFactory;
     private readonly object _sync = new();
+    private IAudioEndpointFactory? _factory;
+    private IAudioVolumeNotifier? _notifier;
+    private long _nextInitializationAttemptTick;
     private bool _disposed;
 
     /// <summary>系统音量/静音变化时触发（可能在 COM 原生线程，订阅方自行封送）。</summary>
     public event Action? VolumeChanged;
 
-    public AudioService() : this(new Win32AudioEndpointFactory())
+    public AudioService()
+        : this(
+            static () => new Win32AudioEndpointFactory(),
+            initializeImmediately: false)
     {
     }
 
     /// <summary>供单测注入假工厂。</summary>
     internal AudioService(IAudioEndpointFactory factory)
+        : this(
+            CreateFactoryAccessor(factory),
+            initializeImmediately: true)
     {
-        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
-        _notifier = factory.CreateNotificationSource();
-        _notifier.VolumeChanged += OnNotifierChanged;
-        _notifier.TryRegister();
+    }
+
+    /// <summary>供单测验证默认构造使用的惰性初始化边界。</summary>
+    internal AudioService(Func<IAudioEndpointFactory> factoryFactory)
+        : this(factoryFactory, initializeImmediately: false)
+    {
+    }
+
+    private AudioService(
+        Func<IAudioEndpointFactory> factoryFactory,
+        bool initializeImmediately)
+    {
+        _factoryFactory = factoryFactory
+            ?? throw new ArgumentNullException(nameof(factoryFactory));
+
+        if (initializeImmediately)
+        {
+            lock (_sync)
+                EnsureInitializedNoLock();
+        }
     }
 
     private void OnNotifierChanged() => VolumeChanged?.Invoke();
@@ -71,42 +95,72 @@ public sealed class AudioService : IDisposable
     {
         get
         {
-            TryDisposeGuard();
-            using var endpoint = _factory.GetDefaultRender();
-            return endpoint is not null;
+            lock (_sync)
+            {
+                ThrowIfDisposedNoLock();
+                if (!EnsureInitializedNoLock())
+                    return false;
+
+                using var endpoint = _factory!.GetDefaultRender();
+                return endpoint is not null;
+            }
         }
     }
 
     /// <summary>取主音量（0.0-1.0）。失败返回 null。</summary>
     public float? GetVolume()
     {
-        TryDisposeGuard();
-        using var endpoint = _factory.GetDefaultRender();
-        return endpoint?.GetVolume();
+        lock (_sync)
+        {
+            ThrowIfDisposedNoLock();
+            if (!EnsureInitializedNoLock())
+                return null;
+
+            using var endpoint = _factory!.GetDefaultRender();
+            return endpoint?.GetVolume();
+        }
     }
 
     /// <summary>设置主音量（0.0-1.0，超出范围会被截断）。失败返回 false。</summary>
     public bool SetVolume(float level)
     {
-        TryDisposeGuard();
-        using var endpoint = _factory.GetDefaultRender();
-        return endpoint?.SetVolume(Math.Clamp(level, 0f, 1f)) ?? false;
+        lock (_sync)
+        {
+            ThrowIfDisposedNoLock();
+            if (!EnsureInitializedNoLock())
+                return false;
+
+            using var endpoint = _factory!.GetDefaultRender();
+            return endpoint?.SetVolume(Math.Clamp(level, 0f, 1f)) ?? false;
+        }
     }
 
     /// <summary>查询静音状态。失败返回 null。</summary>
     public bool? GetMute()
     {
-        TryDisposeGuard();
-        using var endpoint = _factory.GetDefaultRender();
-        return endpoint?.GetMute();
+        lock (_sync)
+        {
+            ThrowIfDisposedNoLock();
+            if (!EnsureInitializedNoLock())
+                return null;
+
+            using var endpoint = _factory!.GetDefaultRender();
+            return endpoint?.GetMute();
+        }
     }
 
     /// <summary>设置静音。失败返回 false。</summary>
     public bool SetMute(bool mute)
     {
-        TryDisposeGuard();
-        using var endpoint = _factory.GetDefaultRender();
-        return endpoint?.SetMute(mute) ?? false;
+        lock (_sync)
+        {
+            ThrowIfDisposedNoLock();
+            if (!EnsureInitializedNoLock())
+                return false;
+
+            using var endpoint = _factory!.GetDefaultRender();
+            return endpoint?.SetMute(mute) ?? false;
+        }
     }
 
     /// <summary>
@@ -115,12 +169,15 @@ public sealed class AudioService : IDisposable
     /// </summary>
     public void EnsureVolumeNotifierHealthy()
     {
-        if (_disposed)
-            return;
-
         try
         {
-            _notifier.EnsureBoundToCurrentDefault();
+            lock (_sync)
+            {
+                if (_disposed || !EnsureInitializedNoLock())
+                    return;
+
+                _notifier!.EnsureBoundToCurrentDefault();
+            }
         }
         catch (Exception exception)
         {
@@ -130,14 +187,25 @@ public sealed class AudioService : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
-            return;
+        IAudioVolumeNotifier? notifier;
+        IAudioEndpointFactory? factory;
+        lock (_sync)
+        {
+            if (_disposed)
+                return;
 
-        _disposed = true;
-        _notifier.VolumeChanged -= OnNotifierChanged;
+            _disposed = true;
+            notifier = _notifier;
+            factory = _factory;
+            _notifier = null;
+            _factory = null;
+        }
+
+        if (notifier is not null)
+            notifier.VolumeChanged -= OnNotifierChanged;
         try
         {
-            _notifier.Dispose();
+            notifier?.Dispose();
         }
         catch (Exception exception)
         {
@@ -146,7 +214,7 @@ public sealed class AudioService : IDisposable
 
         try
         {
-            _factory.Dispose();
+            factory?.Dispose();
         }
         catch (Exception exception)
         {
@@ -154,10 +222,58 @@ public sealed class AudioService : IDisposable
         }
     }
 
-    private void TryDisposeGuard()
+    private bool EnsureInitializedNoLock()
+    {
+        if (_factory is not null && _notifier is not null)
+            return true;
+
+        if (Environment.TickCount64 < _nextInitializationAttemptTick)
+            return false;
+
+        IAudioEndpointFactory? factory = null;
+        IAudioVolumeNotifier? notifier = null;
+        try
+        {
+            factory = _factoryFactory();
+            notifier = factory.CreateNotificationSource();
+            notifier.VolumeChanged += OnNotifierChanged;
+            notifier.TryRegister();
+            _factory = factory;
+            _notifier = notifier;
+            _nextInitializationAttemptTick = 0;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            if (notifier is not null)
+                notifier.VolumeChanged -= OnNotifierChanged;
+            try
+            {
+                notifier?.Dispose();
+                factory?.Dispose();
+            }
+            catch (Exception disposeException)
+            {
+                Logger.Debug(disposeException, "清理失败的音频初始化资源失败");
+            }
+
+            Logger.Debug(exception, "初始化音频服务失败");
+            _nextInitializationAttemptTick = Environment.TickCount64 + 5000;
+            return false;
+        }
+    }
+
+    private void ThrowIfDisposedNoLock()
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(AudioService));
+    }
+
+    private static Func<IAudioEndpointFactory> CreateFactoryAccessor(
+        IAudioEndpointFactory factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        return () => factory;
     }
 }
 

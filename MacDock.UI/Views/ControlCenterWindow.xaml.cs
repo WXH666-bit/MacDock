@@ -91,6 +91,7 @@ public partial class ControlCenterWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _isOpen = false;
         _viewModel.Dispose();
         base.OnClosed(e);
     }

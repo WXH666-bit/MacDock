@@ -194,8 +194,8 @@ public partial class DockWindow : Window
             return;
         }
 
-        // WinEvent 在当前 WPF 线程回调时先确认 Dock 映射，避免为未固定应用截图；
-        // 若系统从其他线程投递，则先做一次有界 GDI 快照，再回 UI 线程匹配控件。
+        // 若调用已在 WPF 线程，先确认 Dock 中已有对应固定或临时项；正常生产路径的
+        // WinEvent 位于专用消息线程，只做一次有界 GDI 快照，再回 UI 线程匹配控件。
         if (Dispatcher.CheckAccess()
             && _viewModel.FindItemForProcess(exeName) is null)
         {

@@ -34,18 +34,33 @@ public partial class DockItemViewModel : ObservableObject
     [ObservableProperty]
     private bool _isRunning;
 
+    /// <summary>是否为用户固定项；false 表示只在应用运行期间显示的临时项。</summary>
+    [ObservableProperty]
+    private bool _isPinned;
+
     /// <summary>启动命令。</summary>
     public ICommand LaunchCommand { get; }
 
     /// <summary>移除命令。</summary>
     public ICommand RemoveCommand { get; }
 
-    public DockItemViewModel(DockItem model, BitmapSource? icon,
-        Action<DockItemViewModel> onLaunch, Action<DockItemViewModel> onRemove)
+    /// <summary>把临时运行项保留在 Dock 的命令。</summary>
+    public ICommand PinCommand { get; }
+
+    /// <summary>创建一个固定或临时的 Dock 项视图模型。</summary>
+    public DockItemViewModel(
+        DockItem model,
+        BitmapSource? icon,
+        bool isPinned,
+        Action<DockItemViewModel> onLaunch,
+        Action<DockItemViewModel> onRemove,
+        Action<DockItemViewModel> onPin)
     {
-        Model = model;
+        Model = model ?? throw new ArgumentNullException(nameof(model));
         _icon = icon;
+        _isPinned = isPinned;
         LaunchCommand = new RelayCommand(() => onLaunch(this));
         RemoveCommand = new RelayCommand(() => onRemove(this));
+        PinCommand = new RelayCommand(() => onPin(this));
     }
 }

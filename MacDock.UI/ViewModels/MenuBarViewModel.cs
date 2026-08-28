@@ -4,6 +4,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using MacDock.Core.Services;
 using MacDock.UI.Views;
+using NLog;
 
 namespace MacDock.UI.ViewModels;
 
@@ -17,7 +18,9 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
     /// <summary>无前台应用（如刚启动、桌面）时显示的兜底名。</summary>
     private const string FallbackAppName = "MacDock";
 
-    private readonly WindowMonitor _windowMonitor;
+    private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
+
+    private readonly WindowMonitor? _windowMonitor;
     private readonly DispatcherTimer _clockTimer;
     private readonly DispatcherTimer _controlsTimer;
     private readonly DispatcherTimer _volumeSelfHealTimer;
@@ -25,12 +28,26 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
     private readonly BrightnessService _brightness;
     private readonly LatestValueAsyncWriter _brightnessWriter;
     private readonly Dispatcher? _dispatcher;
+    private readonly bool _applyAudioInlineForTests;
+    private readonly object _audioRefreshSync = new();
+    private readonly CancellationTokenSource _audioRefreshCancellation = new();
+    private readonly SemaphoreSlim _audioRefreshSignal = new(0, 1);
+    private readonly Task _audioRefreshWorker;
     private Task _brightnessShutdownCompletion = Task.CompletedTask;
     private int _brightnessReadInFlight;
     private int _cachedBrightnessLevel = -1;
     private bool _cachedBrightnessAvailable;
     private long _brightnessWriteVersion;
     private int _foregroundResolveVersion;
+    private bool _audioRefreshRequested;
+    private bool _audioEnsureRequested;
+    private bool _audioNotifyRequested;
+    private bool _audioSignalArmed;
+    private float? _pendingVolumeWrite;
+    private bool? _pendingMuteWrite;
+    private float? _cachedVolume;
+    private bool _hasCachedMute;
+    private int _audioCleanupStarted;
     private bool _disposed;
 
     /// <summary>当前前台应用显示名（窗口标题优先，退化为进程名）。</summary>
@@ -73,7 +90,13 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
 
     /// <param name="windowMonitor">共享的窗口监控实例，生命周期由调用方持有。</param>
     public MenuBarViewModel(WindowMonitor windowMonitor)
-        : this(windowMonitor, new AudioService(), new BrightnessService())
+        : this(
+            windowMonitor,
+            new AudioService(),
+            new BrightnessService(),
+            Application.Current?.Dispatcher,
+            startTimers: true,
+            applyAudioInlineForTests: false)
     {
     }
 
@@ -82,26 +105,68 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
         WindowMonitor windowMonitor,
         AudioService audio,
         BrightnessService brightness)
+        : this(
+            windowMonitor,
+            audio,
+            brightness,
+            Application.Current?.Dispatcher,
+            startTimers: true,
+            applyAudioInlineForTests: false)
     {
-        _windowMonitor = windowMonitor ?? throw new ArgumentNullException(nameof(windowMonitor));
-        _audio = audio;
-        _brightness = brightness;
-        _dispatcher = Application.Current?.Dispatcher;
+    }
+
+    /// <summary>供音频刷新单测使用，不创建 WinEvent Hook 或 DispatcherTimer。</summary>
+    internal MenuBarViewModel(
+        AudioService audio,
+        BrightnessService brightness)
+        : this(
+            windowMonitor: null,
+            audio,
+            brightness,
+            dispatcher: null,
+            startTimers: false,
+            applyAudioInlineForTests: true)
+    {
+    }
+
+    private MenuBarViewModel(
+        WindowMonitor? windowMonitor,
+        AudioService audio,
+        BrightnessService brightness,
+        Dispatcher? dispatcher,
+        bool startTimers,
+        bool applyAudioInlineForTests)
+    {
+        if (startTimers)
+            ArgumentNullException.ThrowIfNull(windowMonitor);
+
+        _windowMonitor = windowMonitor;
+        _audio = audio ?? throw new ArgumentNullException(nameof(audio));
+        _brightness = brightness ?? throw new ArgumentNullException(nameof(brightness));
+        _applyAudioInlineForTests = applyAudioInlineForTests;
+        _dispatcher = applyAudioInlineForTests
+            ? null
+            : dispatcher ?? Application.Current?.Dispatcher;
         _brightnessWriter = new LatestValueAsyncWriter(
             (level, cancellationToken) => _brightness.SetBrightnessAsync(level, cancellationToken),
             TimeSpan.FromMilliseconds(80));
 
+        _audioRefreshWorker = Task.Run(ProcessAudioRefreshAsync);
+
         // 启动时取一次当前前台应用，避免等到第一次切换才有内容
-        var current = _windowMonitor.GetForegroundApp();
-        if (current is not null)
-            ForegroundAppName = FormatAppName(current.Value.ProcessName, current.Value.WindowTitle);
+        if (_windowMonitor is not null)
+        {
+            var current = _windowMonitor.GetForegroundApp();
+            if (current is not null)
+                ForegroundAppName = FormatAppName(current.Value.ProcessName, current.Value.WindowTitle);
 
-        _windowMonitor.ForegroundAppChanged += OnForegroundAppChanged;
+            _windowMonitor.ForegroundAppChanged += OnForegroundAppChanged;
+        }
 
-        // 音量改事件回调驱动（替代 500ms 轮询）：启动读一次，变化由音量端点通知触发
+        // 音量改事件回调驱动（替代 500ms 轮询）：启动读一次，变化由音量端点通知触发。
+        // 读取和 COM 健康检查都由后台单消费者执行，构造函数不能同步触碰 AudioService。
         _audio.VolumeChanged += OnAudioVolumeChanged;
-        RefreshAudioState();
-        RefreshVolume();
+        RequestAudioRefresh(ensureNotifier: false, notifyControls: false);
 
         UpdateClock();
         _clockTimer = new DispatcherTimer(DispatcherPriority.Background)
@@ -109,16 +174,20 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
             Interval = TimeSpan.FromSeconds(1),
         };
         _clockTimer.Tick += OnClockTick;
-        _clockTimer.Start();
+        if (startTimers)
+            _clockTimer.Start();
 
         // 亮度仍需异步轮询（WMI 无回调机制）；降到 2 秒，避免持续唤醒 WMI provider。
-        RefreshBrightness();
         _controlsTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromSeconds(2),
         };
         _controlsTimer.Tick += OnControlsTick;
-        _controlsTimer.Start();
+        if (startTimers)
+        {
+            RefreshBrightness();
+            _controlsTimer.Start();
+        }
 
         // 5 秒低频兜底自愈。正统解法是 RegisterEndpointNotificationCallback(IMMNotificationClient)
         // 事件驱动检测设备切换，但需手写完整 COM 回调接口与 CCW 生命周期；修复轮用 5s 轮询比对
@@ -128,7 +197,8 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
             Interval = TimeSpan.FromSeconds(5),
         };
         _volumeSelfHealTimer.Tick += OnVolumeSelfHealTick;
-        _volumeSelfHealTimer.Start();
+        if (startTimers)
+            _volumeSelfHealTimer.Start();
     }
 
     public void Dispose()
@@ -137,7 +207,8 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
             return;
 
         _disposed = true;
-        _windowMonitor.ForegroundAppChanged -= OnForegroundAppChanged;
+        if (_windowMonitor is not null)
+            _windowMonitor.ForegroundAppChanged -= OnForegroundAppChanged;
         _audio.VolumeChanged -= OnAudioVolumeChanged;
         _clockTimer.Tick -= OnClockTick;
         _clockTimer.Stop();
@@ -145,9 +216,91 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
         _controlsTimer.Stop();
         _volumeSelfHealTimer.Tick -= OnVolumeSelfHealTick;
         _volumeSelfHealTimer.Stop();
+        _audioRefreshCancellation.Cancel();
         _brightnessWriter.Dispose();
-        _brightnessShutdownCompletion = FinishBrightnessShutdownAsync();
-        _audio.Dispose();
+        _brightnessShutdownCompletion = FinishShutdownAsync();
+    }
+
+    /// <summary>供音频刷新单测触发一次请求；生产路径由事件和两个定时器调用。</summary>
+    internal void RequestAudioRefreshForTests(
+        bool ensureNotifier = false,
+        bool notifyControls = false)
+        => RequestAudioRefresh(ensureNotifier, notifyControls);
+
+    private async Task FinishShutdownAsync()
+    {
+        var audioShutdown = FinishAudioShutdownAsync();
+        var brightnessShutdown = FinishBrightnessShutdownAsync();
+
+        try
+        {
+            await Task.WhenAll(audioShutdown, brightnessShutdown).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            // 两条收尾路径本身均应收敛异常；这里保留最后一道可观察的保护，
+            // 避免退出期间的后台异常变成未观察任务。
+            Logger.Error(exception, "菜单栏控制刷新收尾失败");
+        }
+    }
+
+    private async Task FinishAudioShutdownAsync()
+    {
+        try
+        {
+            // 同步 COM 调用无法被 CancellationToken 强制中断；等待设置硬上限，
+            // 但超时后绝不提前释放 AudioService，避免后台调用使用已释放的 COM 对象。
+            await _audioRefreshWorker
+                .WaitAsync(TimeSpan.FromMilliseconds(1500))
+                .ConfigureAwait(false);
+
+            DisposeAudioResources();
+        }
+        catch (TimeoutException)
+        {
+            Logger.Warn("音频刷新 worker 未在 1500ms 内停止，将在当前 COM 调用返回后延迟释放");
+            _ = DisposeAudioAfterWorkerAsync();
+        }
+        catch (Exception exception)
+        {
+            // Task 已经完成（即使以 Faulted 结束），此时释放 AudioService 是安全的。
+            Logger.Error(exception, "音频刷新 worker 退出失败");
+            DisposeAudioResources();
+        }
+    }
+
+    private async Task DisposeAudioAfterWorkerAsync()
+    {
+        try
+        {
+            await _audioRefreshWorker.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            Logger.Error(exception, "延迟等待音频刷新 worker 失败");
+        }
+        finally
+        {
+            DisposeAudioResources();
+        }
+    }
+
+    private void DisposeAudioResources()
+    {
+        if (Interlocked.Exchange(ref _audioCleanupStarted, 1) != 0)
+            return;
+
+        try
+        {
+            _audio.Dispose();
+        }
+        catch (Exception exception)
+        {
+            Logger.Error(exception, "释放音频服务失败");
+        }
+
+        _audioRefreshSignal.Dispose();
+        _audioRefreshCancellation.Dispose();
     }
 
     private async Task FinishBrightnessShutdownAsync()
@@ -225,21 +378,29 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
 
         _ = Task.Run(() =>
         {
-            var aumid = UwpDisplayNameResolver.ResolveAumid(processName);
-            if (aumid is null)
-                return;
-
-            var uwpName = UwpDisplayNameResolver.GetDisplayName(aumid);
-            if (uwpName is null)
-                return;
-
-            dispatcher.BeginInvoke(() =>
+            try
             {
-                if (_disposed || version != _foregroundResolveVersion)
+                var aumid = UwpDisplayNameResolver.ResolveAumid(processName);
+                if (aumid is null)
                     return;
 
-                ForegroundAppName = uwpName;
-            }, DispatcherPriority.Background);
+                var uwpName = UwpDisplayNameResolver.GetDisplayName(aumid);
+                if (uwpName is null)
+                    return;
+
+                dispatcher.BeginInvoke(() =>
+                {
+                    if (_disposed || version != _foregroundResolveVersion)
+                        return;
+
+                    ForegroundAppName = uwpName;
+                }, DispatcherPriority.Background);
+            }
+            catch (Exception exception)
+            {
+                // 前台切换的 UWP 完善是降级路径，不能把异常留给未观察的后台任务。
+                Logger.Debug(exception, "异步完善前台应用名失败");
+            }
         });
     }
 
@@ -286,10 +447,12 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
         return $"{weekday} {date} {time}";
     }
 
-    /// <summary>500ms 轮询：亮度（异步） + 音频设备存在性。音量走回调，不进这里。</summary>
+    /// <summary>2 秒轮询：亮度（异步） + 音频设备存在性。音量读取由后台 worker 执行。</summary>
     private void OnControlsTick(object? sender, EventArgs e)
     {
-        RefreshAudioState();
+        // 本定时器原本每次都会触发 ControlsRefreshed；音频结果稍后只更新缓存，
+        // 从而保持这里的回调频率不变，同时避免在 UI 线程读取 Core Audio COM。
+        RequestAudioRefresh(ensureNotifier: false, notifyControls: false);
         RefreshBrightness();
         ControlsRefreshed?.Invoke();
     }
@@ -310,45 +473,267 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
                 if (_disposed)
                     return;
 
-                RefreshAudioState();
-                RefreshVolume();
-                ControlsRefreshed?.Invoke();
+                RequestAudioRefresh(ensureNotifier: false, notifyControls: true);
             },
             DispatcherPriority.Background);
     }
 
-    /// <summary>5 秒低频兜底：先确保通知源仍绑定当前默认设备，再读值刷新维持图标正确。</summary>
+    /// <summary>5 秒低频兜底：后台确保通知源仍绑定当前默认设备，再读值刷新维持图标正确。</summary>
     private void OnVolumeSelfHealTick(object? sender, EventArgs e)
     {
         // 设备切换/未注册时内部重绑；失败不抛（内部静默）。Rebind 后新端点音量值可能不同，
-        // 随后的读值刷新正好把新状态带出来。
-        _audio.EnsureVolumeNotifierHealthy();
-        RefreshAudioState();
-        RefreshVolume();
-        ControlsRefreshed?.Invoke();
+        // 随后的后台读值刷新正好把新状态带出来。
+        RequestAudioRefresh(ensureNotifier: true, notifyControls: true);
     }
 
-    private void RefreshAudioState()
+    /// <summary>
+    /// 请求一次音频刷新。请求只在锁内合并，不在调用线程访问 AudioService；
+    /// worker 始终只有一个消费者，因此 Ensure、设备探测和音量/静音读取不会并行。
+    /// </summary>
+    private void RequestAudioRefresh(bool ensureNotifier, bool notifyControls)
+        => RequestAudioWork(
+            ensureNotifier,
+            notifyControls,
+            volumeWrite: null,
+            muteWrite: null);
+
+    private void RequestAudioWork(
+        bool ensureNotifier,
+        bool notifyControls,
+        float? volumeWrite,
+        bool? muteWrite)
     {
-        IsAudioAvailable = _audio.IsAvailable;
+        lock (_audioRefreshSync)
+        {
+            if (_disposed || _audioRefreshCancellation.IsCancellationRequested)
+                return;
+
+            _audioRefreshRequested = true;
+            _audioEnsureRequested |= ensureNotifier;
+            _audioNotifyRequested |= notifyControls;
+            if (volumeWrite.HasValue)
+                _pendingVolumeWrite = Math.Clamp(volumeWrite.Value, 0f, 1f);
+            if (muteWrite.HasValue)
+                _pendingMuteWrite = muteWrite.Value;
+
+            if (_audioSignalArmed)
+                return;
+
+            _audioSignalArmed = true;
+            // 与 worker 的 signalArmed 状态共用同一把锁，避免 Dispose/消费竞态下
+            // 重复 Release 或遗漏一次待处理请求。
+            _audioRefreshSignal.Release();
+        }
     }
 
-    private void RefreshVolume()
+    private async Task ProcessAudioRefreshAsync()
     {
+        try
+        {
+            while (true)
+            {
+                await _audioRefreshSignal
+                    .WaitAsync(_audioRefreshCancellation.Token)
+                    .ConfigureAwait(false);
+
+                while (TryTakeAudioRefreshRequest(
+                    out var ensureNotifier,
+                    out var notifyControls,
+                    out var volumeWrite,
+                    out var muteWrite))
+                {
+                    AudioRefreshSnapshot snapshot;
+                    try
+                    {
+                        snapshot = ReadAudioState(
+                            ensureNotifier,
+                            volumeWrite,
+                            muteWrite,
+                            _audioRefreshCancellation.Token);
+                    }
+                    catch (OperationCanceledException)
+                        when (_audioRefreshCancellation.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch (Exception exception)
+                    {
+                        Logger.Error(exception, "后台音频状态刷新失败");
+                        continue;
+                    }
+
+                    if (_disposed || _audioRefreshCancellation.IsCancellationRequested)
+                        return;
+
+                    try
+                    {
+                        await ApplyAudioSnapshotAsync(
+                                snapshot,
+                                notifyControls,
+                                _audioRefreshCancellation.Token)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                        when (_audioRefreshCancellation.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                    catch (Exception exception)
+                    {
+                        // 包括 Dispatcher 已关闭、绑定通知处理器异常等情况；
+                        // 记录后继续消费后续请求，避免 worker 静默死亡。
+                        Logger.Error(exception, "应用后台音频状态刷新结果失败");
+                    }
+                }
+
+                if (_disposed || _audioRefreshCancellation.IsCancellationRequested)
+                    return;
+            }
+        }
+        catch (OperationCanceledException)
+            when (_audioRefreshCancellation.IsCancellationRequested)
+        {
+            // 正常 Dispose 路径。
+        }
+        catch (Exception exception)
+        {
+            // worker 本身也是后台任务；最后一道保护确保异常始终可观察。
+            Logger.Error(exception, "后台音频刷新 worker 异常退出");
+        }
+    }
+
+    private bool TryTakeAudioRefreshRequest(
+        out bool ensureNotifier,
+        out bool notifyControls,
+        out float? volumeWrite,
+        out bool? muteWrite)
+    {
+        lock (_audioRefreshSync)
+        {
+            if (!_audioRefreshRequested)
+            {
+                _audioSignalArmed = false;
+                ensureNotifier = false;
+                notifyControls = false;
+                volumeWrite = null;
+                muteWrite = null;
+                return false;
+            }
+
+            _audioRefreshRequested = false;
+            ensureNotifier = _audioEnsureRequested;
+            notifyControls = _audioNotifyRequested;
+            _audioEnsureRequested = false;
+            _audioNotifyRequested = false;
+            volumeWrite = _pendingVolumeWrite;
+            muteWrite = _pendingMuteWrite;
+            _pendingVolumeWrite = null;
+            _pendingMuteWrite = null;
+            return true;
+        }
+    }
+
+    private AudioRefreshSnapshot ReadAudioState(
+        bool ensureNotifier,
+        float? volumeWrite,
+        bool? muteWrite,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (ensureNotifier)
+            _audio.EnsureVolumeNotifierHealthy();
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (volumeWrite.HasValue)
+            _audio.SetVolume(volumeWrite.Value);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (muteWrite.HasValue)
+            _audio.SetMute(muteWrite.Value);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var isAvailable = _audio.IsAvailable;
+
+        cancellationToken.ThrowIfCancellationRequested();
         var volume = _audio.GetVolume();
+
+        bool? mute = null;
         if (volume.HasValue)
         {
-            var pct = (int)Math.Round(volume.Value * 100);
-            VolumePercent = $"{pct}%";
-            IsMuted = _audio.GetMute() ?? false;
-            VolumeIconState = MenuBarFlyoutViewModel.VolumeIconState(pct, IsMuted);
+            cancellationToken.ThrowIfCancellationRequested();
+            mute = _audio.GetMute();
         }
-        else
-        {
-            VolumePercent = string.Empty;
-            VolumeIconState = "speaker_3";
-        }
+
+        return new AudioRefreshSnapshot(isAvailable, volume, mute);
     }
+
+    private Task ApplyAudioSnapshotAsync(
+        AudioRefreshSnapshot snapshot,
+        bool notifyControls,
+        CancellationToken cancellationToken)
+    {
+        var dispatcher = _dispatcher;
+        if (_disposed || dispatcher is null)
+        {
+            if (_applyAudioInlineForTests && !_disposed)
+                Apply();
+            return Task.CompletedTask;
+        }
+
+        void Apply()
+        {
+            try
+            {
+                if (_disposed)
+                    return;
+
+                // 这里只更新绑定属性和缓存；任何 AudioService 读取都发生在 worker。
+                IsAudioAvailable = snapshot.IsAvailable;
+                if (snapshot.Volume.HasValue)
+                {
+                    _cachedVolume = snapshot.Volume;
+                    var percent = (int)Math.Round(snapshot.Volume.Value * 100);
+                    VolumePercent = $"{percent}%";
+                    var muted = snapshot.Mute ?? false;
+                    _hasCachedMute = snapshot.Mute.HasValue;
+                    IsMuted = muted;
+                    VolumeIconState = MenuBarFlyoutViewModel.VolumeIconState(percent, muted);
+                }
+                else
+                {
+                    _cachedVolume = null;
+                    _hasCachedMute = false;
+                    VolumePercent = string.Empty;
+                    IsMuted = false;
+                    VolumeIconState = "speaker_3";
+                }
+
+                if (notifyControls)
+                    ControlsRefreshed?.Invoke();
+            }
+            catch (Exception exception)
+            {
+                // BeginInvoke 投递后没有调用方等待 DispatcherOperation；必须在 UI 回调内收敛异常。
+                Logger.Error(exception, "应用音频状态到界面失败");
+            }
+        }
+
+        if (dispatcher.CheckAccess())
+        {
+            Apply();
+            return Task.CompletedTask;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        dispatcher.BeginInvoke(Apply, DispatcherPriority.Background);
+        return Task.CompletedTask;
+    }
+
+    private readonly record struct AudioRefreshSnapshot(
+        bool IsAvailable,
+        float? Volume,
+        bool? Mute);
 
     /// <summary>
     /// 亮度状态异步刷新：WMI 查询放到 BrightnessService 的串行 worker，
@@ -399,9 +784,10 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
         {
             // 服务在退出期间停止排队，取消只代表本次刷新无结果。
         }
-        catch
+        catch (Exception exception)
         {
             // BrightnessService 已将 WMI 失败收敛为默认值；UI 关闭竞态不应冒泡。
+            Logger.Debug(exception, "亮度状态刷新失败");
         }
         finally
         {
@@ -412,7 +798,8 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
     /// <summary>取当前音量（0-100）；不可用时返回 null。</summary>
     public int? GetVolumeLevel()
     {
-        var volume = _audio.GetVolume();
+        // 菜单栏、浮窗和控制中心均在 UI 线程调用；这里只读后台 worker 已应用的缓存。
+        var volume = _cachedVolume;
         return volume.HasValue ? (int)Math.Round(volume.Value * 100) : null;
     }
 
@@ -428,7 +815,19 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
     /// <summary>浮窗滑条写回音量（由菜单栏窗口转交）。</summary>
     public void SetVolumeFromFlyout(double value)
     {
-        _audio.SetVolume((float)(value / 100.0));
+        if (_disposed)
+            return;
+
+        var normalized = Math.Clamp((float)(value / 100.0), 0f, 1f);
+        _cachedVolume = normalized;
+        var percent = (int)Math.Round(normalized * 100);
+        VolumePercent = $"{percent}%";
+        VolumeIconState = MenuBarFlyoutViewModel.VolumeIconState(percent, IsMuted);
+        RequestAudioWork(
+            ensureNotifier: false,
+            notifyControls: false,
+            volumeWrite: normalized,
+            muteWrite: null);
     }
 
     /// <summary>
@@ -443,8 +842,20 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
     /// <summary>切换静音（浮窗静音按钮）。</summary>
     public void ToggleMuteFromFlyout()
     {
-        var mute = _audio.GetMute();
-        _audio.SetMute(!(mute ?? false));
+        if (_disposed)
+            return;
+
+        var mute = !(_hasCachedMute && IsMuted);
+        _hasCachedMute = true;
+        IsMuted = mute;
+        VolumeIconState = MenuBarFlyoutViewModel.VolumeIconState(
+            GetVolumeLevel() ?? 0,
+            mute);
+        RequestAudioWork(
+            ensureNotifier: false,
+            notifyControls: false,
+            volumeWrite: null,
+            muteWrite: mute);
     }
 
     /// <summary>音量滚轮步进（步长 2%，越界自动截断）。返回是否成功。</summary>
@@ -454,7 +865,7 @@ public sealed partial class MenuBarViewModel : ObservableObject, IDisposable
         if (!volume.HasValue)
             return;
 
-        _audio.SetVolume((float)Math.Clamp(volume.Value + delta, 0, 100) / 100f);
+        SetVolumeFromFlyout(Math.Clamp(volume.Value + delta, 0, 100));
     }
 
     /// <summary>亮度滚轮步进（步长 5%，越界自动截断）。返回是否成功。</summary>

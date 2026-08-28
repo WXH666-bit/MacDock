@@ -144,9 +144,9 @@
                            PlacementTarget="{Binding ElementName=OverflowChevron}"
                            HorizontalOffset="-8" VerticalOffset="4">
                         <Border CornerRadius="10"
-                                Background="#F2242428"
+                                Background="{DynamicResource GlassSurfaceStrongBrush}"
                                 BorderThickness="1"
-                                BorderBrush="#26FFFFFF"
+                                BorderBrush="{DynamicResource GlassBorderBrush}"
                                 Padding="8,10"
                                 Margin="0,4,0,0">
                             <ItemsControl ItemsSource="{Binding Overflow}"

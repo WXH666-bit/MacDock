@@ -48,7 +48,30 @@
         </Grid.InputBindings>
         <Grid.ContextMenu>
             <ContextMenu>
-                <MenuItem Header="移除" Command="{Binding RemoveCommand}"/>
+                <MenuItem Header="保留在 Dock" Command="{Binding PinCommand}">
+                    <MenuItem.Style>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsPinned}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </MenuItem.Style>
+                </MenuItem>
+                <MenuItem Header="从 Dock 移除" Command="{Binding RemoveCommand}">
+                    <MenuItem.Style>
+                        <Style TargetType="MenuItem">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </MenuItem.Style>
+                </MenuItem>
             </ContextMenu>
         </Grid.ContextMenu>
 

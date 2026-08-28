@@ -67,6 +67,25 @@ public class DockItemStoreTests
     }
 
     [Fact]
+    public void Load_ValidEmptyList_ReturnsEmpty()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"macdock-empty-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(path, "[]");
+
+            var loaded = new DockItemStore(path).Load();
+
+            Assert.Empty(loaded);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Load_DeadItemMatchingDefaultName_IsReplacedByDefault()
     {
         var expected = DockItemStore.DefaultItems.First(d => d.Name == "资源管理器");

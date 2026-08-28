@@ -133,4 +133,12 @@ public partial class MenuBarFlyoutWindow : Window
 
         WindowPlacementService.PlaceTopNoActivate(hwnd, leftPx, topPx, widthPx, heightPx);
     }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        _closing = false;
+        _isOpen = false;
+        Deactivated -= OnDeactivated;
+        base.OnClosed(e);
+    }
 }

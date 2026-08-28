@@ -50,6 +50,16 @@ internal static class NativeMethods
     public static extern int DwmIsCompositionEnabled(
         [MarshalAs(UnmanagedType.Bool)] out bool pfEnabled);
 
+    /// <summary>DWMWA_EXTENDED_FRAME_BOUNDS：窗口可见外框的物理像素边界。</summary>
+    public const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(
+        IntPtr hwnd,
+        int attribute,
+        out RECT value,
+        int valueSize);
+
     // ---- 窗口合成属性（Accent 亚克力，Win10 1803+ / Win11 全系） ----
     /// <summary>WCA_ACCENT_POLICY。</summary>
     public const int WCA_ACCENT_POLICY = 19;
@@ -274,12 +284,12 @@ internal static class NativeMethods
     /// <summary>钩子来源范围：当前桌面所有进程。</summary>
     public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     public static extern IntPtr SetWinEventHook(
         uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
         WinEventDelegate lpfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
 

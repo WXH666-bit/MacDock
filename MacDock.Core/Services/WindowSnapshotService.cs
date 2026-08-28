@@ -56,7 +56,7 @@ public static class WindowSnapshotService
             || !IsAnimationSupported
             || !NativeMethods.IsWindow(hwnd)
             || !NativeMethods.IsWindowVisible(hwnd)
-            || !NativeMethods.GetWindowRect(hwnd, out var bounds))
+            || !TryGetVisibleWindowBounds(hwnd, out var bounds))
         {
             return null;
         }
@@ -156,7 +156,9 @@ public static class WindowSnapshotService
                 && previousObject != IntPtr.Zero
                 && previousObject != HgdiError)
             {
-                NativeMethods.SelectObject(memoryDc, previousObject);
+                var restored = NativeMethods.SelectObject(memoryDc, previousObject);
+                if (restored == IntPtr.Zero || restored == HgdiError)
+                    Logger.Debug("恢复 M4 快照内存 DC 原始对象失败");
             }
 
             if (bitmap != IntPtr.Zero && !NativeMethods.DeleteObject(bitmap))
@@ -169,6 +171,31 @@ public static class WindowSnapshotService
                 Logger.Debug("释放 M4 屏幕 DC 失败");
             }
         }
+    }
+
+    private static bool TryGetVisibleWindowBounds(IntPtr hwnd, out RECT bounds)
+    {
+        try
+        {
+            if (NativeMethods.DwmGetWindowAttribute(
+                    hwnd,
+                    NativeMethods.DWMWA_EXTENDED_FRAME_BOUNDS,
+                    out bounds,
+                    Marshal.SizeOf<RECT>()) >= 0
+                && bounds.right > bounds.left
+                && bounds.bottom > bounds.top)
+            {
+                return true;
+            }
+        }
+        catch (DllNotFoundException)
+        {
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+
+        return NativeMethods.GetWindowRect(hwnd, out bounds);
     }
 
     internal static bool IsCaptureSizeAllowed(int width, int height)

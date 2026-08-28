@@ -16,22 +16,22 @@
     -->
     <Window.Resources>
         <Style x:Key="LabelStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#8AFFFFFF"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextSecondaryBrush}"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Margin" Value="0,0,12,0"/>
             <Setter Property="HorizontalAlignment" Value="Right"/>
         </Style>
         <Style x:Key="ValueStyle" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#F2FFFFFF"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
     </Window.Resources>
 
     <Border CornerRadius="12"
-            Background="#F2242428"
+            Background="{DynamicResource GlassSurfaceStrongBrush}"
             BorderThickness="1"
-            BorderBrush="#26FFFFFF"
+            BorderBrush="{DynamicResource GlassBorderBrush}"
             MouseLeftButtonDown="OnDragArea">
         <Border.Effect>
             <DropShadowEffect BlurRadius="24" ShadowDepth="3" Opacity="0.45" Color="Black"/>
@@ -55,11 +55,11 @@
                        RenderOptions.BitmapScalingMode="HighQuality"/>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock Text="MacDock"
-                               Foreground="#FFFFFFFF"
+                               Foreground="{DynamicResource AppTextPrimaryBrush}"
                                FontSize="16"
                                FontWeight="SemiBold"/>
                     <TextBlock Text="关于本机"
-                               Foreground="#A6FFFFFF"
+                               Foreground="{DynamicResource AppTextSecondaryBrush}"
                                FontSize="11"/>
                 </StackPanel>
             </StackPanel>
@@ -97,10 +97,10 @@
                     Width="88" Height="30"
                     HorizontalAlignment="Center"
                     Margin="0,20,0,0"
-                    Foreground="#F2FFFFFF"
+                    Foreground="{DynamicResource AppTextPrimaryBrush}"
                     BorderThickness="1"
-                    BorderBrush="#33FFFFFF"
-                    Background="#1FFFFFFF"
+                    BorderBrush="{DynamicResource GlassBorderBrush}"
+                    Background="{DynamicResource ControlFillBrush}"
                     Cursor="Hand"
                     IsDefault="True"
                     IsCancel="True"

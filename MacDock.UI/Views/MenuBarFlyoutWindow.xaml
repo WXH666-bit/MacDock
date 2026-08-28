@@ -24,11 +24,11 @@
 
         <!-- 静音按钮：圆角描边小按钮，与「关于本机」关闭按钮同观感 -->
         <Style x:Key="FlyoutMuteButton" TargetType="Button">
-            <Setter Property="Foreground" Value="#F2FFFFFF"/>
+            <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="#33FFFFFF"/>
-            <Setter Property="Background" Value="#1FFFFFFF"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource GlassBorderBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource ControlFillBrush}"/>
             <Setter Property="Padding" Value="14,6"/>
             <Setter Property="Template">
                 <Setter.Value>
@@ -51,9 +51,9 @@
             <TranslateTransform x:Name="FlyoutTransform"/>
         </Grid.RenderTransform>
         <Border CornerRadius="10"
-                Background="#F2242428"
+                Background="{DynamicResource GlassSurfaceStrongBrush}"
                 BorderThickness="1"
-                BorderBrush="#26FFFFFF">
+                BorderBrush="{DynamicResource GlassBorderBrush}">
             <Border.Effect>
                 <DropShadowEffect BlurRadius="20" ShadowDepth="2" Opacity="0.4" Color="Black"/>
             </Border.Effect>
@@ -63,10 +63,10 @@
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,12">
                     <Path Width="16" Height="16"
                           Stretch="Uniform"
-                          Fill="#F2FFFFFF"
+                          Fill="{DynamicResource AppTextPrimaryBrush}"
                           Data="{Binding IconState, Converter={StaticResource IconToGeometry}}"/>
                     <TextBlock Text="{Binding Title}"
-                               Foreground="#F2FFFFFF"
+                               Foreground="{DynamicResource AppTextPrimaryBrush}"
                                FontSize="14"
                                FontWeight="SemiBold"
                                VerticalAlignment="Center"

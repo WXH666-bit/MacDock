@@ -5,7 +5,7 @@ using NLog;
 namespace MacDock.Core.Services;
 
 /// <summary>
-/// Dock 项目持久化：读写 dock-items.json，首次运行写入默认预置。
+/// Dock 项目持久化：读写 dock-items.json；文件不存在时提供首次运行默认预置。
 /// </summary>
 public sealed class DockItemStore
 {
@@ -32,7 +32,10 @@ public sealed class DockItemStore
         _filePath = filePath;
     }
 
-    /// <summary>读取 Dock 项目；文件不存在时返回默认预置。</summary>
+    /// <summary>
+    /// 读取 Dock 项目；文件不存在时返回默认预置，合法的空数组表示用户已清空 Dock，
+    /// 非空配置则按安全自愈规则处理。
+    /// </summary>
     public IReadOnlyList<DockItem> Load()
     {
         if (!File.Exists(_filePath))
@@ -45,6 +48,10 @@ public sealed class DockItemStore
             if (items is null)
                 return DefaultItems.ToList();
 
+            // 空数组是用户明确保存的状态，不能被首次运行默认项或“全部坏死”回退规则覆盖。
+            if (items.Count == 0)
+                return items;
+
             return Heal(items);
         }
         catch
@@ -56,7 +63,8 @@ public sealed class DockItemStore
     /// <summary>
     /// 配置自愈：修掉旧版本写入的坏死条目（死路径且既无 StoreAppName 也无 IconOverride，
     /// 表现为图标隐形）。按 Name 匹配默认项则原位替换，匹配不到则丢弃；
-    /// 用户条目与正常条目一律不动。仅在内存中处理，不回写文件。
+    /// 用户条目与正常条目一律不动；若非空配置中的条目全部被丢弃，则回退到默认预置。
+    /// 仅在内存中处理，不回写文件。
     /// </summary>
     private static List<DockItem> Heal(List<DockItem> items)
     {

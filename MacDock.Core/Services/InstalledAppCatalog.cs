@@ -600,7 +600,7 @@ public sealed class InstalledAppCatalog
                     return null;
 
                 if (logo.IsFile)
-                    return logo.LocalPath;
+                    return PackageAssetResolver.ResolveLogoPath(packageRoot, logo.LocalPath);
 
                 if (!string.Equals(logo.Scheme, "ms-appx", StringComparison.OrdinalIgnoreCase))
                     return null;
@@ -610,13 +610,7 @@ public sealed class InstalledAppCatalog
                 if (relativePath.Length == 0)
                     return null;
 
-                var root = Path.GetFullPath(packageRoot)
-                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                    + Path.DirectorySeparatorChar;
-                var iconPath = Path.GetFullPath(Path.Combine(root, relativePath));
-                return iconPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)
-                    ? iconPath
-                    : null;
+                return PackageAssetResolver.ResolveLogoPath(packageRoot, relativePath);
             }
             catch (Exception)
             {

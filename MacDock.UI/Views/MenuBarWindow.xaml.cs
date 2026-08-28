@@ -33,7 +33,7 @@ public partial class MenuBarWindow : Window
     private readonly bool _reserveWorkArea;
     private readonly TrayIconReader _trayReader;
     private readonly TrayAreaViewModel _trayVm;
-    private readonly MenuBarFlyoutWindow? _flyout;
+    private MenuBarFlyoutWindow? _flyout;
     private AboutWindow? _aboutWindow;
     private ControlCenterWindow? _controlCenter;
     private LaunchpadWindow? _launchpadWindow;
@@ -63,22 +63,8 @@ public partial class MenuBarWindow : Window
         _trayVm = new TrayAreaViewModel(_trayReader, trayTakeover);
         TrayRegion.DataContext = _trayVm;
 
-        // 浮窗在构造时创建：滑条写回依当前模式分派到音量/亮度，静音按钮固定走音量
-        var flyoutViewModel = new MenuBarFlyoutViewModel(
-            value =>
-            {
-                if (_flyoutIsVolume)
-                    _viewModel.SetVolumeFromFlyout(value);
-                else
-                    _viewModel.SetBrightnessFromFlyout(value);
-            },
-            _viewModel.ToggleMuteFromFlyout,
-            () =>
-            {
-                if (!_flyoutIsVolume)
-                    _viewModel.FlushBrightnessWrite();
-            });
-        _flyout = new MenuBarFlyoutWindow(flyoutViewModel);
+        // 浮窗可被 Alt+F4 等外部路径关闭；统一工厂保证下次点击能安全重建。
+        _flyout = CreateFlyout();
 
         // 外部音量/亮度变化（Fn 键等）刷新时同步到已打开的浮窗
         _viewModel.ControlsRefreshed += OnControlsRefreshed;
@@ -98,6 +84,37 @@ public partial class MenuBarWindow : Window
         // 分辨率/缩放变化后重新贴顶（多显示器扩展点：M2.1 只做主屏）
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         _themeManager.ThemeChanged += OnThemeChanged;
+    }
+
+    private MenuBarFlyoutWindow CreateFlyout()
+    {
+        // 滑条写回依当前模式分派到音量/亮度，静音按钮固定走音量。
+        var viewModel = new MenuBarFlyoutViewModel(
+            value =>
+            {
+                if (_flyoutIsVolume)
+                    _viewModel.SetVolumeFromFlyout(value);
+                else
+                    _viewModel.SetBrightnessFromFlyout(value);
+            },
+            _viewModel.ToggleMuteFromFlyout,
+            () =>
+            {
+                if (!_flyoutIsVolume)
+                    _viewModel.FlushBrightnessWrite();
+            });
+        var flyout = new MenuBarFlyoutWindow(viewModel);
+        flyout.Closed += OnFlyoutClosed;
+        return flyout;
+    }
+
+    private void OnFlyoutClosed(object? sender, EventArgs e)
+    {
+        if (sender is MenuBarFlyoutWindow flyout)
+            flyout.Closed -= OnFlyoutClosed;
+
+        if (ReferenceEquals(_flyout, sender))
+            _flyout = null;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -347,6 +364,7 @@ public partial class MenuBarWindow : Window
                 try
                 {
                     _controlCenter = new ControlCenterWindow(viewModel) { Owner = this };
+                    _controlCenter.Closed += OnControlCenterClosed;
                 }
                 catch
                 {
@@ -365,6 +383,15 @@ public partial class MenuBarWindow : Window
         {
             e.Handled = true;
         }
+    }
+
+    private void OnControlCenterClosed(object? sender, EventArgs e)
+    {
+        if (sender is ControlCenterWindow controlCenter)
+            controlCenter.Closed -= OnControlCenterClosed;
+
+        if (ReferenceEquals(_controlCenter, sender))
+            _controlCenter = null;
     }
 
     /// <summary>M5 启动台按钮：全屏展示当前用户可启动的开始菜单和商店应用。</summary>
@@ -413,17 +440,18 @@ public partial class MenuBarWindow : Window
     {
         try
         {
-            if (_flyout!.IsOpen && _flyoutIsVolume)
+            var flyout = _flyout ??= CreateFlyout();
+            if (flyout.IsOpen && _flyoutIsVolume)
             {
-                _flyout.Collapse();
+                flyout.Collapse();
                 return;
             }
 
             _flyoutIsVolume = true;
-            _flyout.ViewModel.ShowVolume(
+            flyout.ViewModel.ShowVolume(
                 _viewModel.GetVolumeLevel() ?? 0,
                 _viewModel.IsMuted);
-            _flyout.ShowBelowIcon(ComputeAnchor(VolumeIcon));
+            flyout.ShowBelowIcon(ComputeAnchor(VolumeIcon));
         }
         catch (Exception exception)
         {
@@ -436,16 +464,17 @@ public partial class MenuBarWindow : Window
     {
         try
         {
-            if (_flyout!.IsOpen && !_flyoutIsVolume)
+            var flyout = _flyout ??= CreateFlyout();
+            if (flyout.IsOpen && !_flyoutIsVolume)
             {
-                _flyout.Collapse();
+                flyout.Collapse();
                 return;
             }
 
             _flyoutIsVolume = false;
             // 弹窗首值只读 ViewModel 缓存，不在 UI 线程触发 WMI。
-            _flyout.ViewModel.ShowBrightness(_viewModel.CachedBrightnessLevel ?? 0);
-            _flyout.ShowBelowIcon(ComputeAnchor(BrightnessIcon));
+            flyout.ViewModel.ShowBrightness(_viewModel.CachedBrightnessLevel ?? 0);
+            flyout.ShowBelowIcon(ComputeAnchor(BrightnessIcon));
         }
         catch (Exception exception)
         {
@@ -502,9 +531,18 @@ public partial class MenuBarWindow : Window
         _appBar.Dispose();
         _trayVm.Dispose();
         _trayReader.Dispose();
-        _flyout?.Close();
-        _controlCenter?.Close();
-        _controlCenter = null;
+        if (_flyout is not null)
+        {
+            _flyout.Closed -= OnFlyoutClosed;
+            _flyout.Close();
+            _flyout = null;
+        }
+        if (_controlCenter is not null)
+        {
+            _controlCenter.Closed -= OnControlCenterClosed;
+            _controlCenter.Close();
+            _controlCenter = null;
+        }
         _launchpadWindow?.Close();
         _launchpadWindow = null;
         _aboutWindow?.Close();

@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using MacDock.Core.Interop;
+using NLog;
 
 namespace MacDock.Core.Services;
 
@@ -14,7 +15,13 @@ namespace MacDock.Core.Services;
 /// </summary>
 public sealed class IconService
 {
+    private const long MaximumBitmapAssetBytes = 16 * 1024 * 1024;
+    private const int MaximumBitmapSourceDimension = 8192;
+    private const long MaximumBitmapSourcePixels = 16_000_000;
+    private const int MaximumBitmapPixelSize = 256;
+
     private static readonly Lazy<IconService> Lazy = new(() => new IconService());
+    private static readonly ILogger Logger = LogManager.GetCurrentClassLogger();
     public static IconService Instance => Lazy.Value;
 
     private readonly Dictionary<string, BitmapSource> _cache = new(StringComparer.OrdinalIgnoreCase);
@@ -38,7 +45,23 @@ public sealed class IconService
         BitmapSource icon;
         lock (ExtractLock)
         {
-            icon = ExtractIcon(path);
+            // 另一个调用可能在等待提取锁时已经填充缓存，避免重复访问 Shell。
+            lock (_lock)
+            {
+                if (_cache.TryGetValue(key, out var cached))
+                    return cached;
+            }
+
+            try
+            {
+                icon = ExtractIcon(path);
+            }
+            catch (Exception exception)
+            {
+                // 图标只是装饰信息；损坏或不受支持的文件不能中断启动台或 Dock 加载。
+                Logger.Debug(exception, "无法提取图标，使用透明占位图：{0}", path);
+                icon = CreatePlaceholderIcon();
+            }
         }
 
         lock (_lock)
@@ -52,6 +75,15 @@ public sealed class IconService
     /// <summary>从文件提取图标并转为已冻结的 BitmapSource。</summary>
     private static BitmapSource ExtractIcon(string path)
     {
+        // AppX/MSIX 图标通常是 PNG 资源。直接受限解码可保留真实图标，而不是
+        // SHGetFileInfo 返回的通用“图片文件”图标。
+        if (IsBitmapAssetPath(path))
+        {
+            return TryLoadBitmapAsset(path, out var bitmapAsset)
+                ? bitmapAsset
+                : CreatePlaceholderIcon();
+        }
+
         // 1. 系统图像列表（SHIL_EXTRALARGE，高清大图标）
         var hIcon = GetExtraLargeIcon(path);
         // 2. 回退：SHGetFileInfo 大图标（32px）
@@ -78,6 +110,92 @@ public sealed class IconService
         return CreatePlaceholderIcon();
     }
 
+    private static bool TryLoadBitmapAsset(string path, out BitmapSource bitmapSource)
+    {
+        bitmapSource = null!;
+
+        try
+        {
+            var fileInfo = new FileInfo(path);
+            if (fileInfo.Length <= 0 || fileInfo.Length > MaximumBitmapAssetBytes)
+                return false;
+
+            if (!TryReadBitmapDimensions(path, out var width, out var height)
+                || width <= 0
+                || height <= 0
+                || width > MaximumBitmapSourceDimension
+                || height > MaximumBitmapSourceDimension
+                || (long)width * height > MaximumBitmapSourcePixels)
+            {
+                return false;
+            }
+
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 4096,
+                FileOptions.SequentialScan);
+            var image = new BitmapImage();
+            image.BeginInit();
+            image.CacheOption = BitmapCacheOption.OnLoad;
+            image.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
+            if (width >= height)
+                image.DecodePixelWidth = Math.Min(width, MaximumBitmapPixelSize);
+            else
+                image.DecodePixelHeight = Math.Min(height, MaximumBitmapPixelSize);
+            image.StreamSource = stream;
+            image.EndInit();
+            image.Freeze();
+            bitmapSource = image;
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or IOException
+            or NotSupportedException
+            or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsBitmapAssetPath(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return string.Equals(extension, ".png", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".jpg", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(extension, ".jpeg", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryReadBitmapDimensions(
+        string path,
+        out int width,
+        out int height)
+    {
+        width = 0;
+        height = 0;
+
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete,
+            bufferSize: 4096,
+            FileOptions.SequentialScan);
+        var decoder = BitmapDecoder.Create(
+            stream,
+            BitmapCreateOptions.DelayCreation | BitmapCreateOptions.IgnoreColorProfile,
+            BitmapCacheOption.None);
+        var frame = decoder.Frames.FirstOrDefault();
+        if (frame is null)
+            return false;
+
+        width = frame.PixelWidth;
+        height = frame.PixelHeight;
+        return true;
+    }
+
     private static IntPtr GetExtraLargeIcon(string path)
     {
         try
@@ -93,14 +211,25 @@ public sealed class IconService
             if (hr != 0 || pList == IntPtr.Zero)
                 return IntPtr.Zero;
 
+            IImageList? imageList = null;
             try
             {
-                var imageList = (IImageList)Marshal.GetObjectForIUnknown(pList);
-                imageList.GetIcon(shfi.iIcon, NativeMethods.ILD_TRANSPARENT, out var hIcon);
-                return hIcon;
+                imageList = (IImageList)Marshal.GetObjectForIUnknown(pList);
+                var getIconResult = imageList.GetIcon(
+                    shfi.iIcon,
+                    NativeMethods.ILD_TRANSPARENT,
+                    out var hIcon);
+                if (getIconResult >= 0)
+                    return hIcon;
+
+                if (hIcon != IntPtr.Zero)
+                    NativeMethods.DestroyIcon(hIcon);
+                return IntPtr.Zero;
             }
             finally
             {
+                if (imageList is not null && Marshal.IsComObject(imageList))
+                    Marshal.ReleaseComObject(imageList);
                 Marshal.Release(pList);
             }
         }
